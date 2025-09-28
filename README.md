@@ -22,7 +22,7 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
 
 - Emulates a **USB HID keyboard** when plugged in.
   - ⚠️ Subject to host OS keyboard layout. For correct special characters, flash the firmware with the appropriate layout.
-- Advertises as a **Bluetooth device** for pairing and communication.
+- Advertises as a **Bluetooth device** for pairing and communication. The key will show up in your Bluetooth devices as "KPKB_SRV01"
   - Secure pairing: a PIN is displayed on the dongle screen.
   - Screen feedback:
     - `SECURED` → pairing successful  
