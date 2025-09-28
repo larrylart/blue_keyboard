@@ -15,7 +15,8 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
 - **Board:** [LILYGO® T-Dongle-S3 ESP32-S3 TTGO Development Board](https://github.com/Xinyuan-LilyGO/T-Dongle-S3)  
   - Features: 0.96" ST7735 LCD display, TF card slot, onboard LED  
   - Price: ~$30 on Amazon, ~$17 on AliExpress
-
+    
+![LILYGO® T-Dongle-S3](doc/lilygo_usb_s3_dongle_.jpg)
 ---
 
 ## Features
@@ -32,6 +33,8 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
   - Green when remote connects  
   - Blinks when a string is received
 - Screen displays "READY" when idle.
+
+![Dongle Ready](doc/bluekb_dongle_ready.jpg) ![Dongle Receive](doc/bluekb_dongle_recv.jpg)
 
 ---
 
@@ -52,6 +55,8 @@ Precompiled firmware (for various layouts, though only UK tested) is available u
 1. Open [esptool-js](https://espressif.github.io/esptool-js/) in your browser.
 2. Connect the dongle via USB.
 3. Flash the firmware at **address `0x10000`**.
+
+![Flash Dongle](doc/website_firmware_screen1.jpg)
 
 Alternative flashing tools:  
 - [T-Dongle-S3 firmware tools](https://github.com/Xinyuan-LilyGO/T-Dongle-S3/tree/main/firmware) (not tested here).
@@ -88,21 +93,14 @@ A modified KeePassDX client for Android has been created:
   - `NimBLE-Arduino`
   - `TFT_eSPI` (customized)
 
+![Arduino Settings](doc/arduino_studio_settings.jpg)
+
 ### TFT Screen
 
 - The stock `TFT_eSPI` in Arduino IDE did not work.  
 - Instead, use the version provided by LilyGO:  
   - [T-Dongle-S3 libs](https://github.com/Xinyuan-LilyGO/T-Dongle-S3/tree/main/lib)  
   - Copy `TFT_eSPI` and `lv_conf.h` manually into your Arduino `libraries/` folder.
-
-### Arduino Settings
-
-- **Board:** ESP32-S3 Dev Module  
-- **USB Mode:** USB-OTG (TinyUSB)  
-- **Partition Scheme:** Huge APP (3MB + 1.5MB)  
-- **PSRAM:** Enabled  
-- **Flash Mode:** QIO 80MHz  
-- **Flash Size:** 16MB (depending on your dongle)  
 
 ---
 
@@ -114,7 +112,8 @@ A modified KeePassDX client for Android has been created:
 
 ## Roadmap / To Do
 
-- Update to ESP32 3.x core without boot loop issues.  
+- Update to ESP32 3.x core without boot loop issues.
+- Once getting ESP32 3.x core to run, update Bluetooth stack to avail of latest encryption
 - Improve Android app integration & stability.  
 - Support additional keyboard layouts (Mac, DE, FR, etc.).  
 - Explore secure BLE with stronger encryption.
