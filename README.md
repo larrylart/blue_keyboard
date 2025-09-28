@@ -53,7 +53,7 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
 Precompiled firmware (for various layouts, though only UK tested) is available under **[Releases](./releases)**.
 
 1. Open [esptool-js](https://espressif.github.io/esptool-js/) in your browser.
-2. Connect the dongle via USB.
+2. Connect the dongle via USB. Make sure you hold the back dongle button while you inserting in the usb port.
 3. Flash the firmware at **address `0x10000`**.
 
 ![Flash Dongle](doc/website_firmware_screen1.jpg)
