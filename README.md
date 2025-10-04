@@ -1,8 +1,30 @@
 # ESP32-S3 Password Dongle (USB HID Keyboard)
 
+## 🔄 Update
+
+### **v1.1 – Blue Keyboard Dongle**
+
+**Release Highlights:**
+
+- 🚀 **Updated to ESP32 Board Library v3.3.1**  
+  Migrated firmware to the latest ESP32 core for improved stability and compatibility.  
+
+- 🔐 **Enhanced BLE Security**  
+  Refined pairing and encryption logic for more reliable and secure device connections.  
+
+- 🧩 **Micro Command Support**  
+  Introduced a new *command protocol* (e.g., `C:SET:LAYOUT_UK_WINLIN`, `S:mystring`) enabling the connected app to dynamically switch keyboard layouts — eliminating the need for separate firmware versions per layout.  
+
+- 🌍 **Additional Keyboard Layouts**  
+  Added multiple new regional layouts (DE, FR, ES, IT, PT, SE, NO, DK, FI, CH, TR, etc.) for broader international support *(pending testing)*.  
+
+- 🧠 **Improved Connection & Display Handling**  
+  Fixed several issues related to BLE reconnection logic, status feedback, and display updates during connect/disconnect events.  
+
+  
 ## Overview
 
-This project is a quick prototype (built in about a day) of a tool that makes it easier to send passwords from a mobile password vault app to a PC or device **without having to type them manually**.  
+This project is a quick prototype of a tool that makes it easier to send passwords from a mobile password vault app to a PC or device **without having to type them manually**.  
 
 It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The dongle receives keystrokes over Bluetooth and then "types" them on the connected host machine.
 
@@ -21,7 +43,7 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
 ## Features
 
 - Emulates a **USB HID keyboard** when plugged in.
-  - ⚠️ Subject to host OS keyboard layout. For correct special characters, flash the firmware with the appropriate layout.
+  - ⚠️ Subject to host OS keyboard layout. For correct special characters, layout - you need to select the from within the remote app (ie KeePassDX) the host keyboard layout. 
 - Advertises as a **Bluetooth device** for pairing and communication. The key will show up in your Bluetooth devices as "KPKB_SRV01"
   - Secure pairing: a PIN is displayed on the dongle screen.
   - Screen feedback:
@@ -35,19 +57,17 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
 
 ---
 
-## Firmware Notes
+## Firmware Notes (v1.1)
 
 - **Arduino IDE** was used for development.  
-- Works reliably with **ESP32 board library v2.0.14**.  
-  - ⚠️ Newer versions (ESP32 3.x) caused boot loops with the display.  
-  - Downside: BLE stack uses only 128-bit encryption.  
-- Possible future improvement: update to latest ESP32 core.
+- was updated successfully to the latest version **ESP32 board library v3.x**
 
 ---
 
 ## Installation
 
-Precompiled firmware (for various layouts, though only UK tested) is available under **[Releases](./releases)**.
+Precompiled firmware is available under **[Releases](./releases)**.
+Note: use the latest (ie v1.1+) that is more secure and can handle multiple keyboard layouts in the same firmware.
 
 1. Open [esptool-js](https://espressif.github.io/esptool-js/) in your browser.
 2. Connect the dongle via USB.
@@ -81,7 +101,7 @@ A modified KeePassDX client for Android has been created:
 
 ### Requirements
 
-- **ESP32 Board Library**: `2.0.14`  
+- **ESP32 Board Library**: `3.3.1+`  
 - Additional libraries:
   - `Adafruit_SPIFlash`
   - `FastLED`
@@ -90,10 +110,16 @@ A modified KeePassDX client for Android has been created:
 
 ### TFT Screen
 
-- The stock `TFT_eSPI` in Arduino IDE did not work.  
-- Instead, use the version provided by LilyGO:  
+- The stock `TFT_eSPI` in Arduino IDE did not work out of the box  
+- You need to get the one provided by LilyGO:  
   - [T-Dongle-S3 libs](https://github.com/Xinyuan-LilyGO/T-Dongle-S3/tree/main/lib)  
-  - Copy `TFT_eSPI` and `lv_conf.h` manually into your Arduino `libraries/` folder.
+  - Copy from LilyGO TFT_eSPI/User_Setup.h, TFT_eSPI/User_Setup_Select.h, User_Setups directory your Arduino `libraries/TFT_eSPI` folder.
+  - also copy LilyGO `lv_conf.h` manually into your Arduino `libraries/` folder.
+  - edit `libraries/TFT_eSPI\User_Setups\Setup47_ST7735.h` and add these lines:
+  ```
+  #define USE_HSPI_PORT // fix for t-dongle-s3 with newer board versions
+  #define DISABLE_ALL_LIBRARY_WARNINGS //disable touch gpio warnings.
+  ```
 
 ### Arduino Settings
 
@@ -106,17 +132,9 @@ A modified KeePassDX client for Android has been created:
 
 ---
 
-## Screenshots
-
-*(Add images here of the dongle screen, pairing, and typing in action)*
-
----
-
 ## Roadmap / To Do
 
-- Update to ESP32 3.x core without boot loop issues.  
 - Improve Android app integration & stability.  
-- Support additional keyboard layouts (Mac, DE, FR, etc.).  
-- Explore secure BLE with stronger encryption.
-
+- Explore options to tokenize strings in transit
+- Tidy up the code, restructure
 
