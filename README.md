@@ -37,7 +37,8 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
 - **Board:** [LILYGO® T-Dongle-S3 ESP32-S3 TTGO Development Board](https://github.com/Xinyuan-LilyGO/T-Dongle-S3)  
   - Features: 0.96" ST7735 LCD display, TF card slot, onboard LED  
   - Price: ~$30 on Amazon, ~$17 on AliExpress
-
+    
+![LILYGO® T-Dongle-S3](doc/lilygo_usb_s3_dongle_.jpg)
 ---
 
 ## Features
@@ -55,6 +56,8 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
   - Blinks when a string is received
 - Screen displays "READY" when idle.
 
+![Dongle Ready](doc/bluekb_dongle_ready.jpg) ![Dongle Receive](doc/bluekb_dongle_recv.jpg)
+
 ---
 
 ## Firmware Notes (v1.1)
@@ -70,8 +73,10 @@ Precompiled firmware is available under **[Releases](./releases)**.
 Note: use the latest (ie v1.1+) that is more secure and can handle multiple keyboard layouts in the same firmware.
 
 1. Open [esptool-js](https://espressif.github.io/esptool-js/) in your browser.
-2. Connect the dongle via USB.
+2. Connect the dongle via USB. Make sure you hold the back dongle button while you inserting in the usb port.
 3. Flash the firmware at **address `0x10000`**.
+
+![Flash Dongle](doc/website_firmware_screen1.jpg)
 
 Alternative flashing tools:  
 - [T-Dongle-S3 firmware tools](https://github.com/Xinyuan-LilyGO/T-Dongle-S3/tree/main/firmware) (not tested here).
@@ -108,6 +113,8 @@ A modified KeePassDX client for Android has been created:
   - `NimBLE-Arduino`
   - `TFT_eSPI` (customized)
 
+![Arduino Settings](doc/arduino_studio_settings.jpg)
+
 ### TFT Screen
 
 - The stock `TFT_eSPI` in Arduino IDE did not work out of the box  
@@ -120,15 +127,6 @@ A modified KeePassDX client for Android has been created:
   #define USE_HSPI_PORT // fix for t-dongle-s3 with newer board versions
   #define DISABLE_ALL_LIBRARY_WARNINGS //disable touch gpio warnings.
   ```
-
-### Arduino Settings
-
-- **Board:** ESP32-S3 Dev Module  
-- **USB Mode:** USB-OTG (TinyUSB)  
-- **Partition Scheme:** Huge APP (3MB + 1.5MB)  
-- **PSRAM:** Enabled  
-- **Flash Mode:** QIO 80MHz  
-- **Flash Size:** 16MB (depending on your dongle)  
 
 ---
 
