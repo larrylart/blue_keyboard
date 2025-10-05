@@ -69,7 +69,7 @@ It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The d
 
 ## Installation
 
-Precompiled firmware is available under **[Releases](./releases)**.
+Precompiled firmware is available under **[Releases](https://github.com/larrylart/blue_keyboard/releases)**.
 Note: use the latest (ie v1.1+) that is more secure and can handle multiple keyboard layouts in the same firmware.
 
 1. Open [esptool-js](https://espressif.github.io/esptool-js/) in your browser.
