@@ -5,6 +5,7 @@
 #define COMMANDS_H
 
 #include <Arduino.h>
+#include "settings.h"
 #include "layout_kb_profiles.h"   // for KeyboardLayout, layoutName, m_nKeyboardLayout
 #include <string.h>   // strlen
 #include <stddef.h>   // size_t

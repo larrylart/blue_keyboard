@@ -1,8 +1,10 @@
 ////////////////////////////////////////////////////////////////////
 // handling various keyboard layout for specia chars/currency symbols
 ////////////////////////////////////////////////////////////////////
-#pragma once
-//#include "RawKeyboard.h"
+#ifndef LAYOUT_KB_PROFILES_H
+#define LAYOUT_KB_PROFILES_H
+
+#include "RawKeyboard.h"
 
 // layout_kb_profiles.h
 enum class KeyboardLayout : uint8_t 
@@ -587,3 +589,4 @@ static inline void sendUnicodeAware( RawKeyboard& kb, const char* s )
   }
 }
 
+#endif

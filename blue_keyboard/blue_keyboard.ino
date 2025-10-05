@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////
-// Bluetooth Software Keyboard (v1.1)
+// Bluetooth Software Keyboard (v1.2)
 // Created by: Larry Lart
 ////////////////////////////////////////////////////////////////////
 #include <Arduino.h>
@@ -11,6 +11,7 @@
 #include "TFT_eSPI.h" 
 #include <Preferences.h>     // NVS key/value
 #include <MD5Builder.h>      // Arduino MD5 helper (ESP32 core)
+#include <esp_system.h>   // esp_restart()
 
 // put these includes at top of file (if not already present)
 extern "C" 
@@ -20,6 +21,7 @@ extern "C"
 }
 
 // local
+#include "settings.h"
 #include "RawKeyboard.h"
 #include "layout_kb_profiles.h"
 #include "commands.h"
@@ -36,29 +38,13 @@ extern "C"
 
 // Global (defined in blue_keyboard.ino)
 KeyboardLayout m_nKeyboardLayout = KeyboardLayout::US_WINLIN;
-static const char* PREF_NS = "bluekb";  // pick a stable namespace string
+//static const char* PREF_NS = "bluekb";  // pick a stable namespace string
 
 // persistent preferences
-Preferences gPrefs;
+//Preferences gPrefs;
 
 // flags
 static volatile bool g_echoOnConnect = false;
-
-// Make sure NVS is open (RW) before any get/put
-static inline void ensurePrefsOpenRW() 
-{
-  static bool opened = false;
-  if( !opened ) 
-  {
-    // false => read/write
-    if( !gPrefs.begin(PREF_NS, /*readOnly=*/false) ) 
-	{
-      // Optional: log an error
-      // Serial.println("Preferences begin() failed");
-    }
-    opened = true;
-  }
-}
 
 /////////////
 CRGB led[1];
@@ -74,6 +60,9 @@ volatile uint32_t recvCount = 0;
 
 // keep track of current "base" LED state
 CRGB currentColor = CRGB::Black;
+
+// --- Pairing window flag persisted in NVS (allow one-time pairing, then lock) ---
+//static bool g_allowPairing = true;
 
 // flags
 static volatile bool g_displayReadyScheduled = false;
@@ -103,41 +92,12 @@ static volatile bool g_pendingHello = false;
 static uint32_t g_helloDueAtMs = 0;
 static std::string g_helloPayload;
 
+// reset to defaults
+static bool  g_longPressConsumed = false;
+static bool  g_btnWasDown        = false;
+static uint32_t g_pressStartMs   = 0;
 
-// Load from persistent storage
-////////////////////////////////////////////////////
-void loadLayoutFromNVS()
-{
-	ensurePrefsOpenRW();  // make sure the same namespace is open
-
-	// Read stored byte; default to UK_WINLIN
-	uint8_t raw = gPrefs.getUChar("kb_layout", static_cast<uint8_t>(KeyboardLayout::US_WINLIN));
-
-	// Clamp to valid range (enum is 1..6 per your header)
-	if( raw < static_cast<uint8_t>(KeyboardLayout::UK_WINLIN ) ||
-		raw > static_cast<uint8_t>(KeyboardLayout::US_MAC ) ) 
-	{
-		raw = static_cast<uint8_t>(KeyboardLayout::US_WINLIN); // keep default consistent
-	}
-	m_nKeyboardLayout = static_cast<KeyboardLayout>(raw);
-
-	// Optional debugging:
-	// Serial.printf("NVS kb_layout=%u (%s)\n", raw, layoutName(m_nKeyboardLayout));
-}
-
-// Save to persisten storage
-/////////////////////////////////
-void saveLayoutToNVS(KeyboardLayout id)
-{
-  ensurePrefsOpenRW();  // same namespace, RW
-  gPrefs.putUChar("kb_layout", static_cast<uint8_t>(id));
-
-  // Optional verify:
-  // uint8_t check = gPrefs.getUChar("kb_layout", 0);
-  // Serial.printf("Saved kb_layout=%u, readback=%u\n",
-  //               static_cast<uint8_t>(id), check);
-}
-
+/////////////////////
 // ---- tiny helpers ----
 static inline void setLED(const CRGB& c) 
 {
@@ -345,66 +305,6 @@ void handleWrite(const std::string& val)
 
 }
 
-// GAP event handler: called by NimBLE host for security/pairing and other events
-////////////////////////////////////////////////////////////////////
-static int bleGapEvent(struct ble_gap_event *event, void * /*arg*/) 
-{
-	// intercept by event type 
-	switch (event->type) 
-	{
-		// this seems to be the case when pairing
-		case BLE_GAP_EVENT_CONN_UPDATE: 
-		{			
-			// this is called when mtu changes
-			// showPin(g_bootPasskey);
-			
-			break;
-		}
-
-		case BLE_GAP_EVENT_ENC_CHANGE: {
-		  // status==0 => link is encrypted (bond was present or pairing just finished)
-		  g_encReady = (event->enc_change.status == 0);
-		  
-		  // also set this - check duplaicate flag g_encReady - g_linkEncrypted?
-		  g_linkEncrypted = (event->enc_change.status == 0);
-		  
-		  if( g_encReady ) cancelPin();
-		  break;
-		}
-		
-		/*case BLE_GAP_EVENT_PASSKEY_ACTION: 
-		{
-		  // If NimBLE does request a display action, show immediately and skip the delay
-		  if( event->passkey.action == BLE_SM_IOACT_DISP ||
-			  event->passkey.action == BLE_SM_IOACT_NUMCMP ) 
-		  {
-			showPin(event->passkey.passkey);
-			g_pinShowScheduled = false;
-		  }
-		  break;
-		}*/
-
-/*		// try to catch on connect and send back the connect echo
-		case BLE_GAP_EVENT_SUBSCRIBE: 
-		{
-			//do not know what 8 is
-			if( event->subscribe.attr_handle == 8 ) sendConnectedEcho();
-				
-			break;
-		}
-*/
-		// defaults
-		default: 
-		{
-			// For all other events 
-			break;
-		}
-	}
-
-
-  return 0;
-}
-
 //////////////////////////////////
 static void scheduleHello(uint32_t delayMs = 80) 
 {
@@ -437,6 +337,124 @@ static void flushHelloIfDue()
     //              g_txConnHandle, g_txSubChar->getHandle(), ok ? "OK" : "FAIL");
 
     if( ok ) g_pendingHello = false;
+}
+
+// GAP event handler: called by NimBLE host for security/pairing and other events
+////////////////////////////////////////////////////////////////////
+static int bleGapEvent(struct ble_gap_event *event, void * /*arg*/) 
+{
+	// intercept by event type 
+	switch (event->type) 
+	{
+		case BLE_GAP_EVENT_CONNECT:
+		{
+			// If device is locked (pairing closed) and central is NOT bonded, disconnect immediately.
+			ble_gap_conn_desc d{};
+			if (ble_gap_conn_find(event->connect.conn_handle, &d) == 0) 
+			{
+				if (!getAllowPairing() && !d.sec_state.bonded) 
+				{
+					ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
+					return 0;
+				}
+			}
+			break;
+		}
+		
+		// this seems to be the case when pairing
+		case BLE_GAP_EVENT_CONN_UPDATE: 
+		{			
+			// this is called when mtu changes
+			// showPin(g_bootPasskey);
+			
+			break;
+		}
+		
+		case BLE_GAP_EVENT_ENC_CHANGE: {
+			g_encReady = (event->enc_change.status == 0);
+			g_linkEncrypted = (event->enc_change.status == 0);
+
+			if( g_encReady ) 
+			{
+				cancelPin();
+
+				// LOCK after the very first successful bonded link when pairing is open:
+				ble_gap_conn_desc d{};
+				if( ble_gap_conn_find(event->enc_change.conn_handle, &d) == 0 ) 
+				{
+					if( d.sec_state.bonded && getAllowPairing() ) 
+					{
+						// Persist lock
+						setAllowPairing(false);  // -> writes NVS via settings.h
+
+						// Set accept list to EXACTLY this peer - hard method
+						//ble_addr_t only = d.peer_id_addr;   
+						//ble_gap_wl_set(&only, 1);
+		
+						// Whitelist this peer's identity and switch to whitelist-only connections
+						NimBLEDevice::whiteListAdd(NimBLEAddress(d.peer_id_addr));
+						auto* adv = NimBLEDevice::getAdvertising();
+						adv->setScanFilter(false /*scan-any*/, true /*connect-whitelist-only*/);
+						adv->stop();
+						adv->start();
+					}
+				}
+			}
+			break;
+		}		
+
+		case BLE_GAP_EVENT_DISCONNECT:
+		{
+			auto* adv = NimBLEDevice::getAdvertising();
+			adv->setScanFilter(false /*scan-any*/, getAllowPairing() ? false : true /*connect-whitelist-only*/);
+			adv->start();
+			break;
+		}
+
+		
+		/* old to remove
+		case BLE_GAP_EVENT_ENC_CHANGE: {
+		  // status==0 => link is encrypted (bond was present or pairing just finished)
+		  g_encReady = (event->enc_change.status == 0);
+		  
+		  // also set this - check duplaicate flag g_encReady - g_linkEncrypted?
+		  g_linkEncrypted = (event->enc_change.status == 0);
+		  
+		  if( g_encReady ) cancelPin();
+		  break;
+		}*/		
+		
+		/*case BLE_GAP_EVENT_PASSKEY_ACTION: 
+		{
+		  // If NimBLE does request a display action, show immediately and skip the delay
+		  if( event->passkey.action == BLE_SM_IOACT_DISP ||
+			  event->passkey.action == BLE_SM_IOACT_NUMCMP ) 
+		  {
+			showPin(event->passkey.passkey);
+			g_pinShowScheduled = false;
+		  }
+		  break;
+		}*/
+
+/*		// try to catch on connect and send back the connect echo
+		case BLE_GAP_EVENT_SUBSCRIBE: 
+		{
+			//do not know what 8 is
+			if( event->subscribe.attr_handle == 8 ) sendConnectedEcho();
+				
+			break;
+		}
+*/
+		// defaults
+		default: 
+		{
+			// For all other events 
+			break;
+		}
+	}
+
+
+  return 0;
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -581,10 +599,72 @@ class ServerCallbacks : public NimBLEServerCallbacks
 };
 
 ////////////////////////////////////////////////////////////////////
+// call factory reset on long press 6+s
+////////////////////////////////////////////////////////////////////
+void pollResetButtonLongPress() 
+{
+  const bool btnDown = (digitalRead(BTN_PIN) == LOW); // active-low
+  const uint32_t now = millis();
+
+  // 1) Fresh press: mark start time
+  if( btnDown && !g_btnWasDown ) 
+  {
+    g_btnWasDown = true;
+    g_pressStartMs = now;
+    g_longPressConsumed = false;
+  }
+
+  // 2) Held: if 6s reached and not yet consumed -> RESET
+  if( btnDown && g_btnWasDown && !g_longPressConsumed ) 
+  {
+	// 6 seconds
+    if (now - g_pressStartMs >= 6000) 
+	{
+      g_longPressConsumed = true;              // one-shot
+      factoryReset();                   // wipe bonds + unlock pairing
+    }
+  }
+
+  // 3) Released: clean up state
+  if (!btnDown && g_btnWasDown) 
+  {
+    g_btnWasDown = false;
+    g_pressStartMs = 0;
+    g_longPressConsumed = false;
+  }
+
+}
+
+/////////////////////////
+// factory reset, clean settings and reboot
+/////////////////////////////////////////////
+void factoryReset() 
+{
+  displayStatus("RESET", TFT_RED, true);
+  
+  NimBLEDevice::deleteAllBonds();
+  setAllowPairing(true);
+
+  // Clear accept list (whitelist) at the controller level
+  ble_gap_wl_set(nullptr, 0);  
+
+  auto* adv = NimBLEDevice::getAdvertising();
+  adv->setScanFilter(false, false);
+  adv->stop();
+  adv->start();
+
+  delay(1500);        // let the user see "RESET"
+  esp_restart();
+}
+
+////////////////////////////////////////////////////////////////////
 // MAIN SETUP
 ////////////////////////////////////////////////////////////////////
 void setup() 
 {
+	// BOOT/BTN: active-low
+	pinMode(BTN_PIN, INPUT_PULLUP);   
+	
 	// LEDs
 	FastLED.addLeds<APA102, LED_DI, LED_CI, BGR>(led, 1);
 	setLED(CRGB::Black);
@@ -597,8 +677,8 @@ void setup()
 	digitalWrite(TFT_LEDA_PIN, 0);
 	drawReady();
 
-	// load layout from persisten storage
-	loadLayoutFromNVS();
+	// load prefs from persisten storage
+	initSettings();
 
 	// FOR DEBUG
 //	Serial.begin(115200);
@@ -672,6 +752,7 @@ void setup()
 
 	// Advertising
 	NimBLEAdvertising* pAdv = NimBLEDevice::getAdvertising();
+	pAdv->setScanFilter(false /*scan-any*/, getAllowPairing() ? false : true /*connect-whitelist-only*/);
 	NimBLEAdvertisementData advData;
 	advData.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
 	//advData.setAppearance(0x03C1);
@@ -696,6 +777,9 @@ void setup()
 ////////////////////////////////////////////////////////////////////
 void loop() 
 {
+	// check for factory reset
+	pollResetButtonLongPress();
+	
 	// just to notify on connect
 	flushHelloIfDue();
 	
