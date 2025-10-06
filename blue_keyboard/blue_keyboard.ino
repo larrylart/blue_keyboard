@@ -97,6 +97,22 @@ static bool  g_longPressConsumed = false;
 static bool  g_btnWasDown        = false;
 static uint32_t g_pressStartMs   = 0;
 
+// Rebuild controller whitelist from bonded peers in NVS.
+static void rebuildWhitelistFromBonds() {
+  ble_addr_t addrs[8];
+  const int capacity = (int)(sizeof(addrs) / sizeof(addrs[0]));
+  int count = capacity;
+
+  int rc = ble_store_util_bonded_peers(addrs, &count, capacity);
+  if (rc != 0 || count <= 0) return;
+
+  for (int i = 0; i < count; ++i) {
+    // NimBLEAddress expects (const uint8_t* val, uint8_t type)
+    NimBLEAddress id(addrs[i].val, addrs[i].type);
+    NimBLEDevice::whiteListAdd(id);
+  }
+}
+
 /////////////////////
 // ---- tiny helpers ----
 static inline void setLED(const CRGB& c) 
@@ -349,7 +365,7 @@ static int bleGapEvent(struct ble_gap_event *event, void * /*arg*/)
 		case BLE_GAP_EVENT_CONNECT:
 		{
 			// If device is locked (pairing closed) and central is NOT bonded, disconnect immediately.
-			ble_gap_conn_desc d{};
+			/*ble_gap_conn_desc d{};
 			if (ble_gap_conn_find(event->connect.conn_handle, &d) == 0) 
 			{
 				if (!getAllowPairing() && !d.sec_state.bonded) 
@@ -357,7 +373,7 @@ static int bleGapEvent(struct ble_gap_event *event, void * /*arg*/)
 					ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
 					return 0;
 				}
-			}
+			}*/
 			break;
 		}
 		
@@ -657,6 +673,42 @@ void factoryReset()
   esp_restart();
 }
 
+static void applyAdvertisePolicyOnBoot() {
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+
+  // Read your persisted flag
+  const bool locked = !getAllowPairing();
+
+  if (!locked) {
+    // Fresh device or pairing unlocked -> connect-any
+    ble_gap_wl_set(nullptr, 0);               // clear controller accept list
+    adv->setScanFilter(false /*scan-any*/, false /*connect-any*/);
+    return;
+  }
+
+  // Pairing locked: rebuild accept list
+  ble_addr_t addrs[8];
+  const int capacity = (int)(sizeof(addrs) / sizeof(addrs[0]));
+  int count = capacity;
+  if (ble_store_util_bonded_peers(addrs, &count, capacity) != 0) count = 0;
+
+  if (count <= 0) {
+    // Self-heal: lock says "no new pairs", but there are no bonds -> unlock
+    setAllowPairing(true);
+    ble_gap_wl_set(nullptr, 0);
+    adv->setScanFilter(false, false);
+    return;
+  }
+
+  // Populate accept list
+  ble_gap_wl_set(nullptr, 0);
+  for (int i = 0; i < count; ++i) {
+    NimBLEAddress id(addrs[i].val, addrs[i].type);
+    NimBLEDevice::whiteListAdd(id);
+  }
+  adv->setScanFilter(false /*scan-any*/, true /*connect-whitelist-only*/);
+}
+
 ////////////////////////////////////////////////////////////////////
 // MAIN SETUP
 ////////////////////////////////////////////////////////////////////
@@ -728,6 +780,12 @@ void setup()
 	  //displayStatus("GAP GOOD", TFT_GREEN, true);
 	}
 
+	// If pairing is locked, repopulate whitelist from bonded devices
+	//if (!getAllowPairing()) 
+	//{
+	//	rebuildWhitelistFromBonds();  // <-- new
+	//}
+
 	// not available in 3.3.x
 	//static SecCallbacks secCbs;
 	//NimBLEDevice::setSecurityCallbacks(&secCbs);
@@ -752,7 +810,7 @@ void setup()
 
 	// Advertising
 	NimBLEAdvertising* pAdv = NimBLEDevice::getAdvertising();
-	pAdv->setScanFilter(false /*scan-any*/, getAllowPairing() ? false : true /*connect-whitelist-only*/);
+//	pAdv->setScanFilter(false /*scan-any*/, getAllowPairing() ? false : true /*connect-whitelist-only*/);
 	NimBLEAdvertisementData advData;
 	advData.setFlags(BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP);
 	//advData.setAppearance(0x03C1);
@@ -766,6 +824,10 @@ void setup()
 	pAdv->addServiceUUID(SERVICE_UUID);   // helps terminals auto-detect NUS
 	pAdv->setMinInterval(160);
 	pAdv->setMaxInterval(320);
+
+	// place strict policy here?
+	applyAdvertisePolicyOnBoot();
+
 	pAdv->start();
 
 	//displayStatus("ADVERTISING", TFT_YELLOW, true);
