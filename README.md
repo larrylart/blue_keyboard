@@ -2,6 +2,12 @@
 
 ## 🔄 Update
 
+### **v1.1.2 – Blue Keyboard Dongle**
+
+- Enforced unique bonding/pairing: the dongle now only bonds with the first paired device. Any subsequent pairing attempts from other devices will be rejected.
+- Reset pairing: to restore the dongle to its default pairing state, hold the back button for 6+ seconds (while connected to USB) until the screen displays "RESET" 
+The dongle will then quickly restart, and once “READY” appears, it can be paired with a new device.
+
 ### **v1.1 – Blue Keyboard Dongle**
 
 **Release Highlights:**
