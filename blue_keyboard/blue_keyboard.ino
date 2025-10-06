@@ -18,6 +18,7 @@ extern "C"
 {
   #include "nimble/ble.h"
   #include "host/ble_gap.h"
+	#include "host/ble_store.h"
 }
 
 // local
@@ -98,6 +99,7 @@ static bool  g_btnWasDown        = false;
 static uint32_t g_pressStartMs   = 0;
 
 // Rebuild controller whitelist from bonded peers in NVS.
+////////////////////////////////////////////////////
 static void rebuildWhitelistFromBonds() {
   ble_addr_t addrs[8];
   const int capacity = (int)(sizeof(addrs) / sizeof(addrs[0]));
@@ -408,7 +410,10 @@ static int bleGapEvent(struct ble_gap_event *event, void * /*arg*/)
 						//ble_gap_wl_set(&only, 1);
 		
 						// Whitelist this peer's identity and switch to whitelist-only connections
-						NimBLEDevice::whiteListAdd(NimBLEAddress(d.peer_id_addr));
+						//NimBLEDevice::whiteListAdd(NimBLEAddress(d.peer_id_addr));
+						ble_addr_t only = d.peer_id_addr;
+						ble_gap_wl_set(&only, 1);
+
 						auto* adv = NimBLEDevice::getAdvertising();
 						adv->setScanFilter(false /*scan-any*/, true /*connect-whitelist-only*/);
 						adv->stop();
@@ -692,7 +697,8 @@ static void applyAdvertisePolicyOnBoot() {
   int count = capacity;
   if (ble_store_util_bonded_peers(addrs, &count, capacity) != 0) count = 0;
 
-  if (count <= 0) {
+  if (count <= 0) 
+	{
     // Self-heal: lock says "no new pairs", but there are no bonds -> unlock
     setAllowPairing(true);
     ble_gap_wl_set(nullptr, 0);
@@ -701,12 +707,16 @@ static void applyAdvertisePolicyOnBoot() {
   }
 
   // Populate accept list
-  ble_gap_wl_set(nullptr, 0);
-  for (int i = 0; i < count; ++i) {
-    NimBLEAddress id(addrs[i].val, addrs[i].type);
-    NimBLEDevice::whiteListAdd(id);
-  }
+  //ble_gap_wl_set(nullptr, 0);
+  //for (int i = 0; i < count; ++i) {
+  //  NimBLEAddress id(addrs[i].val, addrs[i].type);
+  //  NimBLEDevice::whiteListAdd(id);
+  //}
+   // Atomically set controller accept-list from stored bonds
+   ble_gap_wl_set(addrs, count);
+  
   adv->setScanFilter(false /*scan-any*/, true /*connect-whitelist-only*/);
+
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -755,6 +765,14 @@ void setup()
 
 	// Register the GAP handler *right after* init and before advertising
 	//NimBLEDevice::setCustomGapHandler(bleGapEvent);
+	// Register the GAP handler 
+	if( !NimBLEDevice::setCustomGapHandler(bleGapEvent) ) 
+	{
+	  //displayStatus("GAP FAIL", TFT_RED, true);
+	} else 
+	{
+	  //displayStatus("GAP GOOD", TFT_GREEN, true);
+	}
 
 	// Generate a random 6-digit PIN per boot and set it as the passkey
 	g_bootPasskey = (esp_random()%900000UL)+100000UL;
@@ -771,14 +789,6 @@ void setup()
 	// new add
 	NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
 	NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-	// Register the GAP handler 
-	if( !NimBLEDevice::setCustomGapHandler(bleGapEvent) ) 
-	{
-	  //displayStatus("GAP FAIL", TFT_RED, true);
-	} else 
-	{
-	  //displayStatus("GAP GOOD", TFT_GREEN, true);
-	}
 
 	// If pairing is locked, repopulate whitelist from bonded devices
 	//if (!getAllowPairing()) 
