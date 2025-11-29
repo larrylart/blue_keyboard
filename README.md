@@ -1,4 +1,4 @@
-# ESP32-S3 Password Dongle (USB HID Keyboard)
+# ESP32-S3 Password/Keyboard Input Dongle (USB HID)
 
 ## Overview
 
@@ -116,7 +116,7 @@ Press **Save**, and the dongle will:
     - `0xC0` – SET_LAYOUT  
     - `0xC1` – GET_INFO → `0xC2` INFO_VALUE  
     - `0xC4` – RESET_TO_DEFAULT (clears AppKey + setup flags so Wi-Fi portal runs again)  
-    - `0xD0` – SEND_STRING → `0xD1` SEND_RESULT (status + MD5 of typed bytes).
+    - `0xD0` – SEND_STRING → `0xD1` SEND_RESULT (status + MD5 of received payload bytes).
 
 - 🧠 **Improved layout & typing engine**  
   - Layouts centralized in `layout_kb_profiles.h`.  
@@ -155,7 +155,7 @@ Press **Save**, and the dongle will:
    - Decrypts and validates the command using MTLS
    - Converts the characters to HID keycodes using the selected layout profile
    - Types the characters to the host as keypress events
-   - Sends a response with an MD5 of the typed payload so the app can verify that everything was emitted correctly.
+   - Sends a response with an MD5 of the received payload so the app can verify that everything was emitted correctly.
 
 ---
 
