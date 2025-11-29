@@ -78,7 +78,7 @@ Press **Save**, and the dongle will:
 2. The app will connect and request the **setup password** you configured.  
    If the prompt doesn’t appear immediately, toggle connect/disconnect once.
 
-![KeePassDX Provisioning Pass](doc/keepassdx_dongle_provpass.jpg)
+![KeePassDX Provisioning Pass](doc/keepassdx_dongle_provpass_small.jpg)
 
 3. After the password is verified and the AppKey is provisioned, the dongle is fully paired and ready for normal use.
    Note: if the dongle disconnects after provisioning, that is due to a bug I have not yet managed to track down. You can fix this by re-opening the app, than manually toggle the dongle connection from settings. This only seems to be happening on the initial connection.  
