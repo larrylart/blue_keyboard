@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////
-// handling various keyboard layout for specia chars/currency symbols
+// handling various keyboard layouts and special chars/currency symbols
 ////////////////////////////////////////////////////////////////////
 #ifndef LAYOUT_KB_PROFILES_H
 #define LAYOUT_KB_PROFILES_H
