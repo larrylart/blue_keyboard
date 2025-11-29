@@ -123,8 +123,6 @@ Press **Save**, and the dongle will:
   - Layout names like `UK_WINLIN`, `IE_WINLIN`, `US_WINLIN`, `DE_WINLIN`, `FR_MAC`, etc.  
   - Layout-aware Unicode → HID mapping for more reliable typing.
 
-![Wi-Fi Setup Portal](doc/stub_setup_portal.png) 
-
 ## Hardware
 
 - **Board:** [LILYGO® T-Dongle-S3 ESP32-S3 TTGO Development Board](https://github.com/Xinyuan-LilyGO/T-Dongle-S3)  
