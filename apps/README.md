@@ -37,7 +37,7 @@ A standalone Android app for typing and sending text to the dongle:
 - Lightweight & BLE-only permissions  
 
 **Repository:**  
-https://github.com/larrylart/blue_keyboard/apps/android
+[https://github.com/larrylart/blue_keyboard/apps/android](https://github.com/larrylart/blue_keyboard/tree/main/apps/android)
 
 ---
 
