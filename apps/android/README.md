@@ -36,18 +36,18 @@ BluKeyborg provides:
 ![Send History](doc/BluKeyborg_string_history.jpg)
 
 ### Full Keyboard
-![Full Keyboard](images/BluKeyborg_full_keyboard.jpg)
-![Full Keyboard Typing](images/BluKeyborg_full_keyboard_type.jpg)
+![Full Keyboard](doc/BluKeyborg_full_keyboard.jpg)
+![Full Keyboard Typing](doc/BluKeyborg_full_keyboard_type.jpg)
 
 ### Special Keys Panel
-![Special Keys Panel](images/BluKeyborg_special_keys.jpg)
+![Special Keys Panel](doc/BluKeyborg_special_keys.jpg)
 
 ### Control via phone buttons
-![Vol Ctrl](images/BluKeyborg_vol_buttons_ctrl.jpg)
-![Vol Ctrl Lock](images/BluKeyborg_vol_buttons_ctrl_lockscrn.jpg)
+![Vol Ctrl](doc/BluKeyborg_vol_buttons_ctrl.jpg)
+![Vol Ctrl Lock](doc/BluKeyborg_vol_buttons_ctrl_lockscrn.jpg)
 
 ### Settings
-![Settings](images/BluKeyborg_settings.jpg)
+![Settings](doc/BluKeyborg_settings.jpg)
 
 ---
 
@@ -153,7 +153,7 @@ Use the text input box or open the full keyboard.
 ---
 
 ## 🗂️ Source Code Structure
-
+```
 app/src/main/java/com/blu/blukeyborg/
 │
 ├── MainActivity.kt # Main UI: send text + local history
@@ -164,7 +164,7 @@ app/src/main/java/com/blu/blukeyborg/
 ├── BluetoothDeviceManager.kt # Manages selected dongle prefs
 │
 └── BluKeyborgApp.kt # Application class / global init
-
+```
 
 ---
 
