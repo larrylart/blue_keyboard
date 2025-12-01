@@ -10,8 +10,8 @@
 
 
 // Protocol / firmware identifiers 
-#define PROTO_VER "1.2"
-#define FW_VER    "1.2.1"
+#define PROTO_VER "1.3"
+#define FW_VER    "1.2.2"
 
 /////////////////////////////
 // *** DEBUG ***

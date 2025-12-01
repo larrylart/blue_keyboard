@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+
+<!-- 		android:roundIcon="@mipmap/ic_launcher_round"		-->
+
+    <application
+        android:name=".BluKeyborgApp"
+        android:allowBackup="true"
+		android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BluKeyborg">
+
+        <activity
+            android:name="com.blu.blukeyborg.OutputDeviceSettingsActivity"
+            android:exported="false"
+            android:label="@string/title_output_device" />
+
+        <activity
+            android:name=".MainActivity"
+			android:screenOrientation="portrait"
+			android:windowSoftInputMode="stateHidden|adjustResize"
+			android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+		
+		<activity
+			android:name=".FullKeyboardActivity"
+			android:screenOrientation="landscape"
+			android:exported="false"
+			android:theme="@style/Theme.BluKeyborg" />	
+			
+		<activity
+			android:name=".RemoteControlActivity"
+			android:exported="false"
+			android:showWhenLocked="true"
+			android:turnScreenOn="true"
+			android:excludeFromRecents="true"
+			android:launchMode="singleTask"
+			android:theme="@style/Theme.BluKeyborg">
+		</activity>	
+		
+    </application>
+</manifest>

@@ -48,6 +48,7 @@
 #include "layout_kb_profiles.h"   // for KeyboardLayout, layoutName, m_nKeyboardLayout
 
 extern RawKeyboard Keyboard;
+extern bool g_rawFastMode;   // defined in blue_keyboard.ino
 
 // -------------------------------------------------------------------
 // Low-level TX + MTLS primitives
@@ -110,8 +111,8 @@ static inline void wr16le(uint8_t* p, uint16_t v){ p[0]=(uint8_t)(v&0xFF); p[1]=
 // -------------------------------------------------------------------
 // MD5 helper
 //
-// md5_of(buf,n) → out16
-// Used for the SEND_STRING (0xD0) → SEND_RESULT (0xD1) round-trip,
+// md5_of(buf,n) - out16
+// Used for the SEND_STRING (0xD0) - SEND_RESULT (0xD1) round-trip,
 // where the app gets an MD5 over the exact typed payload.
 // -------------------------------------------------------------------
 static inline void md5_of( const uint8_t* buf, size_t n, uint8_t out16[16] )
@@ -233,14 +234,14 @@ static inline bool setLayoutByName(const String& raw)
 // Handles APPKEY onboarding opcodes:
 //
 //   0xA0 = GET_APPKEY_REQUEST
-//          → checks if AppKey already set, and if not:
+//          - checks if AppKey already set, and if not:
 //              - loads KDF params from NVS (salt/verif/iters)
 //              - generates random challenge
 //              - replies with A2: [salt16 | iters4 | chal16]
 //              - records chal in g_appkey_chal + sets g_appkey_chal_pending
 //
 //   0xA3 = APPKEY_PROOF
-//          → app sends MAC32 = HMAC(verif32, "APPKEY"||chal16)
+//          - app sends MAC32 = HMAC(verif32, "APPKEY"||chal16)
 //              - verifies chal is pending and payload size == 32
 //              - recomputes expected MAC using stored verif32+chal16
 //              - if OK, calls sendWrappedAppKey() to send opaque A1:
@@ -367,7 +368,7 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 		}
 
 		// OK - send wrapped appkey (opaque to passive sniffers)
-		DPRINTLN("[APPKEY] proof OK → returning wrapped APPKEY");
+		DPRINTLN("[APPKEY] proof OK - returning wrapped APPKEY");
 		
 		// verif32 and g_appkey_chal are in scope
 		bool okWrap = sendWrappedAppKey(verif32, g_appkey_chal);
@@ -398,7 +399,7 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 //
 //   0xC1 = GET_INFO (request)
 //          payload: empty
-//          → replies 0xC2 with:
+//          - replies 0xC2 with:
 //              "LAYOUT=<SHORT>; PROTO=<ver>; FW=<ver>"
 //
 //   0xC4 = RESET_TO_DEFAULT
@@ -406,9 +407,14 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 //
 //   0xD0 = SEND_STRING
 //          payload: UTF-8 text to type as keystrokes
-//          → types via sendUnicodeAware()
-//          → replies 0xD1 with:
+//          - types via sendUnicodeAware()
+//          - replies 0xD1 with:
 //              [0x00 | md5(payload)]
+//
+//   0xC8 = SET_RAW_FAST_MODE
+//			Payload: 1 byte
+//			0x00 - disable raw mode
+//			0x01 - enable raw mode
 //
 // Any unrecognized opcode returns false (caller will handle).
 ////////////////////////////////////////////////////////////////////
@@ -495,6 +501,69 @@ static bool handle_mtls_ops( uint8_t op, const uint8_t* p, uint16_t n )
 		
 		return( true );
 	}
+
+    // :: SET_RAW_FAST_MODE (0xC8)
+    // payload: [mode1]
+    //   mode1 = 0x00 - disable raw fast mode
+    //   mode1 = 0x01 - enable raw fast mode
+    if( op == 0xC8 )
+    {
+        if( n != 1 )
+        {
+            const char* e = "bad len";
+            sendFrame( 0xFF, (const uint8_t*)e, (uint16_t)strlen(e) );
+            return( true );
+        }
+
+        uint8_t mode = p[0];
+        g_rawFastMode = (mode != 0);
+
+        DPRINT("[RAW] fast_mode=%d\n", g_rawFastMode ? 1 : 0);
+
+        // ACK_OK, no extra payload
+        sendFrame(0x00, nullptr, 0);
+        return( true );
+    }
+
+	// :: RAW_KEY_TAP (0xE0)
+	// Fast-path: send a single HID usage (mods + usage), no MD5, no ACK.
+	// Only honored when g_rawFastMode == true.
+	// Payload:
+	//    [mods1][usage1]            (len = 2)
+	// or [mods1][usage1][repeat1]   (len = 3)
+	if( op == 0xE0 )
+	{
+		// we only accept this if raw mode is enabled
+		if( !g_rawFastMode )
+		{
+			// Raw mode not enabled - treat as error but still consume.
+			const char* e = "raw off";
+			sendFrame(0xFF, (const uint8_t*)e, (uint16_t)strlen(e));
+			return true;
+		}
+
+		if( n < 2 )
+		{
+			const char* e = "bad len";
+			sendFrame( 0xFF, (const uint8_t*)e, (uint16_t)strlen(e) );
+			return true;
+		}
+
+		uint8_t mods   = p[0];
+		uint8_t usage  = p[1];
+		uint8_t repeat = (n >= 3 && p[2] != 0) ? p[2] : 1;
+
+		// Very tight loop: just blast usages via RawKeyboard::sendRaw()
+		for( uint8_t i = 0; i < repeat; ++i )
+		{
+			// press+release with tiny delays 
+			Keyboard.sendRaw(mods, usage);  
+		}
+
+		// NOTE: no ACK (no sendFrame back), no MD5, no UI update.
+		// Pure fire-and-forget for maximum throughput.
+		return true;
+	}
 	
 	// Not a known MTLS-protected opcode
 	return( false );
@@ -518,11 +587,11 @@ static bool handle_mtls_ops( uint8_t op, const uint8_t* p, uint16_t n )
 //
 //   2) If MTLS is NOT active:
 //        - allow only APPKEY onboarding opcodes via handle_appkey_ops()
-//        - any other opcode → error "need MTLS"
+//        - any other opcode - error "need MTLS"
 //
 //   3) If MTLS IS active:
 //        - handle MTLS-protected app opcodes via handle_mtls_ops()
-//        - anything else → "bad op"
+//        - anything else - "bad op"
 //
 // Returns true if the frame was consumed (handled or errored).
 // Returns false only on obvious framing errors (too short, length mismatch).
@@ -547,7 +616,7 @@ static bool dispatch_binary_frame( const uint8_t* buf, size_t len )
 			DPRINT("[DISPATCH] B* handler returned TRUE (consumed=%s)\n", inner.empty()?"yes":"no");
 			
 			 // B1: handshake-only, no inner frame
-			if (inner.empty()) return true;
+			if( inner.empty() ) return true;
 			
 			// B3: inner now holds decrypted app frame [OP|LEN|PAYLOAD]
 			return( dispatch_binary_frame(inner.data(), inner.size()) );
@@ -569,6 +638,8 @@ static bool dispatch_binary_frame( const uint8_t* buf, size_t len )
 	}
 
 	// 3) MTLS-protected application ops (layout, info, reset, typing)
+	// Note: we process commands even if the were not encapsulated in B3, 
+	// for max security all highly sensitive data needs to be encapsulated in B3
 	if( handle_mtls_ops(op, p, L) ) return( true );
 
 	// Unknown op at this point

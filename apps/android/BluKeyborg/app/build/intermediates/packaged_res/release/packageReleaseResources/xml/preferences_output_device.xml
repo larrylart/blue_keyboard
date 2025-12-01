@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <!-- Custom Material row (outlined dropdown + inline switch) -->
+    <com.blu.blukeyborg.OutputDeviceRowPreference
+        android:key="pref_output_dongle_row"
+        app:layout="@layout/pref_output_device_row" />
+
+	<!-- Pair/Unpair action -->
+	<com.blu.blukeyborg.ActionButtonStartPreference
+		android:key="pref_output_dongle_connect"
+		android:title="@string/label_bt_pairing"
+		android:summary="@string/btn_connect_summary"
+		app:layout="@layout/pref_row_button_start" />
+		
+    <!-- NEW: Keyboard Layout -->
+    <com.blu.blukeyborg.SimpleDropdownPreference
+        android:key="@string/pref_keyboard_layout_key"
+        android:title="@string/label_keyboard_layout"
+        app:layout="@layout/pref_row_dropdown" />		
+		
+    <!-- "Send new line" option below the row -->
+	<com.blu.blukeyborg.SendNewlinePreference
+		android:key="@string/output_device_send_new_line_key"
+		android:title="@string/pref_send_newline"
+		android:defaultValue="true" />
+
+    <!-- Volume Up action 
+    <com.blu.blukeyborg.SimpleDropdownPreference
+        android:key="@string/pref_volume_up_action_key"
+        android:title="@string/pref_volume_up_action_title"
+        android:entries="@array/volume_action_entries"
+        android:entryValues="@array/volume_action_values"
+        app:layout="@layout/pref_row_dropdown_flat" /> -->
+
+    <!-- Volume Down action 
+    <com.blu.blukeyborg.SimpleDropdownPreference
+        android:key="@string/pref_volume_down_action_key"
+        android:title="@string/pref_volume_down_action_title"
+        android:entries="@array/volume_action_entries"
+        android:entryValues="@array/volume_action_values"
+        app:layout="@layout/pref_row_dropdown_flat" /> -->
+	
+    <!-- Volume Up action -->
+    <com.blu.blukeyborg.SimpleDropdownPreference
+        android:key="@string/pref_volume_up_action_key"
+        android:title="@string/pref_volume_up_action_title"
+        app:layout="@layout/pref_row_dropdown_flat" />
+
+    <!-- Volume Down action -->
+    <com.blu.blukeyborg.SimpleDropdownPreference
+        android:key="@string/pref_volume_down_action_key"
+        android:title="@string/pref_volume_down_action_title"
+        app:layout="@layout/pref_row_dropdown_flat" />	
+	
+</PreferenceScreen>

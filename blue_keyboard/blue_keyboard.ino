@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////
-//  blue_keyboard.ino (v1.2.1)
+//  blue_keyboard.ino (v1.2.2)
 //  Created by: Larry Lart
 //
 //  Main firmware for the BlueKeyboard / BluKey dongle.
@@ -78,6 +78,9 @@ static volatile bool g_echoOnConnect = false;
 
 Preferences gPrefs;
 bool g_allowPairing = true; // cached in RAM
+
+// Raw fast-path: per-connection, not persisted
+bool g_rawFastMode = false;
 
 /////////////
 CRGB led[1];
@@ -176,7 +179,7 @@ void blinkLed()
 	FastLED.show();
 	
 	// short 100ms blink - todo: should probably do a non blocking blink
-	delay(100);
+	delay(80);
 	
 	led[0] = currentColor;
 	FastLED.show();
@@ -394,8 +397,8 @@ void onStringTyped( size_t numBytes )
 ////////////////////////////////////////////////////////////////////
 void handleWrite( const std::string& val_in ) 
 {
-	// Quick hex log (first 64 bytes)
-	if( !val_in.empty() ) 
+	// Quick hex log (first 64 bytes) - disable in release mode
+	if( !DEBUG_GLOBAL_DISABLED && DEBUG_ENABLED && !val_in.empty() ) 
 	{
 		const uint8_t* b0 = reinterpret_cast<const uint8_t*>(val_in.data());
 		size_t n0 = val_in.size(), m0 = n0 < 64 ? n0 : 64;
@@ -456,14 +459,14 @@ void handleWrite( const std::string& val_in )
 	{
 		locked_ui();
 		const char* e="need APPKEY";
-		sendFrame(0xFF,(const uint8_t*)e,strlen(e));
+		sendFrame( 0xFF,(const uint8_t*)e,strlen(e) );
 		return;
 	}
 
 	// Provisioned but not an mTLS frame - plaintext is not allowed anymore.
 	locked_ui();
 	const char* e="need MTLS";
-	sendFrame(0xFF,(const uint8_t*)e,strlen(e));
+	sendFrame( 0xFF,(const uint8_t*)e,strlen(e) );
 	return;
 }
 
@@ -803,6 +806,9 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		g_linkEncrypted = false;
 		g_linkAuthenticated = false;
 		g_encReady = false;
+		  
+		// kill raw fast mode on link drop
+		g_rawFastMode = false;		  
 		  
 		setLED(CRGB::Black);
 		//displayStatus("ADVERTISING", TFT_YELLOW, true);

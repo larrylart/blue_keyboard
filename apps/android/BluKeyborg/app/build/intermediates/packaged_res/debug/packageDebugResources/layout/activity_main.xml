@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="0dp">
+
+	<!-- Top blue bar - full screen width -->
+	<LinearLayout
+		android:id="@+id/topBar"
+		android:layout_width="match_parent"
+		android:layout_height="48dp"
+		android:orientation="horizontal"
+		android:background="@color/blue_700"
+		android:gravity="center_vertical"
+		android:paddingStart="12dp"
+		android:paddingEnd="12dp">
+
+		<!-- Settings button on left -->
+		<ImageButton
+			android:id="@+id/btnSettingsTop"
+			android:layout_width="36dp"
+			android:layout_height="36dp"
+			android:background="@android:color/transparent"
+			android:padding="6dp"
+			android:src="@drawable/baseline_settings_24"
+			android:contentDescription="Settings" />
+
+		<!-- remote control button -->
+		<ImageButton
+			android:id="@+id/btnRemote"
+			android:layout_width="36dp"
+			android:layout_height="36dp"
+			android:background="@android:color/transparent"
+			android:padding="6dp"
+			android:src="@drawable/outline_tv_remote_24"
+			android:contentDescription="RemoteCtrl"
+			android:layout_marginStart="12dp" />  
+
+		<!-- Title centered via weight -->
+		<TextView
+			android:id="@+id/titleText"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:text="BluKeyborg"
+			android:textSize="20sp"
+			android:textColor="@android:color/white"
+			android:gravity="center"
+			android:paddingStart="-48dp"
+			android:paddingEnd="0dp" />
+
+		<!-- Close (X) button on right -->
+		<ImageButton
+			android:id="@+id/btnCloseTop"
+			android:layout_width="36dp"
+			android:layout_height="36dp"
+			android:background="@android:color/transparent"
+			android:padding="6dp"
+			android:src="@drawable/baseline_close_24_white"
+			android:contentDescription="Close" />
+	</LinearLayout>
+
+
+    <!-- Content area with padding -->
+    <LinearLayout
+        android:id="@+id/contentContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <!-- History label (centered, slightly bigger) -->
+        <TextView
+            android:id="@+id/historyLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/label_history"
+            android:textStyle="bold"
+            android:textSize="18sp"
+            android:gravity="center_horizontal"
+            android:paddingTop="8dp"
+            android:paddingBottom="4dp" />
+
+        <!-- History scroll -->
+        <ScrollView
+            android:id="@+id/historyScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:id="@+id/historyContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+
+        <!-- Input field -->
+        <EditText
+            android:id="@+id/inputEdit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/hint_input_text"
+            android:inputType="textMultiLine"
+            android:minLines="1"
+            android:maxLines="3"
+            android:gravity="top|start"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="4dp" />
+
+        <!-- Bottom bar -->
+		<LinearLayout
+			android:id="@+id/bottomBar"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:orientation="horizontal"
+			android:gravity="center_vertical"
+			android:paddingTop="4dp"
+			android:paddingBottom="4dp"
+			android:paddingStart="8dp"
+			android:paddingEnd="8dp">
+
+
+            <!-- Full keyboard button (new icon: baseline_keyboard_24) -->
+			<ImageButton
+				android:id="@+id/btnFullKeyboard"
+				android:layout_width="32dp"
+				android:layout_height="32dp"
+				android:background="?attr/selectableItemBackgroundBorderless"
+				android:contentDescription="@string/btn_full_keyboard"
+				android:src="@drawable/baseline_keyboard_24"
+				android:tint="@android:color/black" />
+
+            <!-- flexible spacer pushes Special keys + Send to the right -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <!-- Special keys (looks like a keycap) -->
+			<ImageButton
+				android:id="@+id/btnSpecialKeys"
+				android:layout_width="32dp"
+				android:layout_height="32dp"
+				android:background="?attr/selectableItemBackgroundBorderless"
+				android:contentDescription="@string/btn_special_keys"
+				android:src="@drawable/sharp_grid_view_24"
+				android:tint="@android:color/black"
+				android:layout_marginStart="8dp"
+				android:layout_marginEnd="16dp" />
+
+
+            <!-- Send on the far right -->
+			<ImageButton
+				android:id="@+id/btnSend"
+				android:layout_width="32dp"
+				android:layout_height="32dp"
+				android:background="?attr/selectableItemBackgroundBorderless"
+				android:contentDescription="@string/btn_send"
+				android:src="@android:drawable/ic_menu_send"
+				android:tint="@android:color/black" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</LinearLayout>

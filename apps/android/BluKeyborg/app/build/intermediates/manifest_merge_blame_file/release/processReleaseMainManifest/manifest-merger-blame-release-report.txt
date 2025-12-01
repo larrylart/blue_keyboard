@@ -1,0 +1,200 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.blu.blukeyborg"
+4    android:versionCode="1"
+5    android:versionName="0.1" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission
+11-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:4:5-6:58
+12        android:name="android.permission.BLUETOOTH_SCAN"
+12-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:5:9-57
+13        android:usesPermissionFlags="neverForLocation" />
+13-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:6:9-55
+14    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+14-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:7:5-76
+14-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:7:22-73
+15    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+15-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:8:5-79
+15-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:8:22-76
+16    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+16-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:9:5-81
+16-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:9:22-78
+17
+18    <uses-feature
+18-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:11:5-91
+19        android:name="android.hardware.bluetooth_le"
+19-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:11:19-63
+20        android:required="false" />
+20-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:11:64-88
+21
+22    <permission
+22-->[androidx.core:core:1.13.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\fda23288f292e94b3332489f0a262cf5\transformed\core-1.13.1\AndroidManifest.xml:22:5-24:47
+23        android:name="com.blu.blukeyborg.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+23-->[androidx.core:core:1.13.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\fda23288f292e94b3332489f0a262cf5\transformed\core-1.13.1\AndroidManifest.xml:23:9-81
+24        android:protectionLevel="signature" />
+24-->[androidx.core:core:1.13.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\fda23288f292e94b3332489f0a262cf5\transformed\core-1.13.1\AndroidManifest.xml:24:9-44
+25
+26    <uses-permission android:name="com.blu.blukeyborg.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" /> <!-- android:roundIcon="@mipmap/ic_launcher_round" -->
+26-->[androidx.core:core:1.13.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\fda23288f292e94b3332489f0a262cf5\transformed\core-1.13.1\AndroidManifest.xml:26:5-97
+26-->[androidx.core:core:1.13.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\fda23288f292e94b3332489f0a262cf5\transformed\core-1.13.1\AndroidManifest.xml:26:22-94
+27    <application
+27-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:15:5-56:19
+28        android:name="com.blu.blukeyborg.BluKeyborgApp"
+28-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:16:9-38
+29        android:allowBackup="true"
+29-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:17:9-35
+30        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+30-->[androidx.core:core:1.13.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\fda23288f292e94b3332489f0a262cf5\transformed\core-1.13.1\AndroidManifest.xml:28:18-86
+31        android:extractNativeLibs="false"
+32        android:icon="@mipmap/ic_launcher"
+32-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:18:3-37
+33        android:label="@string/app_name"
+33-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:19:9-41
+34        android:supportsRtl="true"
+34-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:20:9-35
+35        android:theme="@style/Theme.BluKeyborg" >
+35-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:21:9-48
+36        <activity
+36-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:23:9-26:59
+37            android:name="com.blu.blukeyborg.OutputDeviceSettingsActivity"
+37-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:24:13-75
+38            android:exported="false"
+38-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:25:13-37
+39            android:label="@string/title_output_device" />
+39-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:26:13-56
+40        <activity
+40-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:28:9-38:20
+41            android:name="com.blu.blukeyborg.MainActivity"
+41-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:29:13-41
+42            android:configChanges="orientation|screenSize|keyboardHidden"
+42-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:32:4-65
+43            android:exported="true"
+43-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:33:13-36
+44            android:screenOrientation="portrait"
+44-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:30:4-40
+45            android:windowSoftInputMode="stateHidden|adjustResize" >
+45-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:31:4-58
+46            <intent-filter>
+46-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:34:13-37:29
+47                <action android:name="android.intent.action.MAIN" />
+47-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:35:17-69
+47-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:35:25-66
+48
+49                <category android:name="android.intent.category.LAUNCHER" />
+49-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:36:17-77
+49-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:36:27-74
+50            </intent-filter>
+51        </activity>
+52        <activity
+52-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:40:3-44:46
+53            android:name="com.blu.blukeyborg.FullKeyboardActivity"
+53-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:41:4-40
+54            android:exported="false"
+54-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:43:4-28
+55            android:screenOrientation="landscape"
+55-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:42:4-41
+56            android:theme="@style/Theme.BluKeyborg" />
+56-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:44:4-43
+57        <activity
+57-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:46:3-54:14
+58            android:name="com.blu.blukeyborg.RemoteControlActivity"
+58-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:47:4-41
+59            android:excludeFromRecents="true"
+59-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:51:4-37
+60            android:exported="false"
+60-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:48:4-28
+61            android:launchMode="singleTask"
+61-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:52:4-35
+62            android:showWhenLocked="true"
+62-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:49:4-33
+63            android:theme="@style/Theme.BluKeyborg"
+63-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:53:4-43
+64            android:turnScreenOn="true" >
+64-->D:\home\projects\KeePassY\BluKeyborg\app\src\main\AndroidManifest.xml:50:4-31
+65        </activity>
+66
+67        <provider
+67-->[androidx.emoji2:emoji2:1.3.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\0851fa7c9fb9a0703df631993c72b43f\transformed\jetified-emoji2-1.3.0\AndroidManifest.xml:24:9-32:20
+68            android:name="androidx.startup.InitializationProvider"
+68-->[androidx.emoji2:emoji2:1.3.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\0851fa7c9fb9a0703df631993c72b43f\transformed\jetified-emoji2-1.3.0\AndroidManifest.xml:25:13-67
+69            android:authorities="com.blu.blukeyborg.androidx-startup"
+69-->[androidx.emoji2:emoji2:1.3.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\0851fa7c9fb9a0703df631993c72b43f\transformed\jetified-emoji2-1.3.0\AndroidManifest.xml:26:13-68
+70            android:exported="false" >
+70-->[androidx.emoji2:emoji2:1.3.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\0851fa7c9fb9a0703df631993c72b43f\transformed\jetified-emoji2-1.3.0\AndroidManifest.xml:27:13-37
+71            <meta-data
+71-->[androidx.emoji2:emoji2:1.3.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\0851fa7c9fb9a0703df631993c72b43f\transformed\jetified-emoji2-1.3.0\AndroidManifest.xml:29:13-31:52
+72                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+72-->[androidx.emoji2:emoji2:1.3.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\0851fa7c9fb9a0703df631993c72b43f\transformed\jetified-emoji2-1.3.0\AndroidManifest.xml:30:17-75
+73                android:value="androidx.startup" />
+73-->[androidx.emoji2:emoji2:1.3.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\0851fa7c9fb9a0703df631993c72b43f\transformed\jetified-emoji2-1.3.0\AndroidManifest.xml:31:17-49
+74            <meta-data
+74-->[androidx.lifecycle:lifecycle-process:2.8.5] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\1530185069404af2de0894210afe072b\transformed\jetified-lifecycle-process-2.8.5\AndroidManifest.xml:29:13-31:52
+75                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+75-->[androidx.lifecycle:lifecycle-process:2.8.5] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\1530185069404af2de0894210afe072b\transformed\jetified-lifecycle-process-2.8.5\AndroidManifest.xml:30:17-78
+76                android:value="androidx.startup" />
+76-->[androidx.lifecycle:lifecycle-process:2.8.5] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\1530185069404af2de0894210afe072b\transformed\jetified-lifecycle-process-2.8.5\AndroidManifest.xml:31:17-49
+77            <meta-data
+77-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:29:13-31:52
+78                android:name="androidx.profileinstaller.ProfileInstallerInitializer"
+78-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:30:17-85
+79                android:value="androidx.startup" />
+79-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:31:17-49
+80        </provider>
+81
+82        <uses-library
+82-->[androidx.window:window:1.0.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\34dfed644555cdfa6b8466546fdf56c2\transformed\jetified-window-1.0.0\AndroidManifest.xml:25:9-27:40
+83            android:name="androidx.window.extensions"
+83-->[androidx.window:window:1.0.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\34dfed644555cdfa6b8466546fdf56c2\transformed\jetified-window-1.0.0\AndroidManifest.xml:26:13-54
+84            android:required="false" />
+84-->[androidx.window:window:1.0.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\34dfed644555cdfa6b8466546fdf56c2\transformed\jetified-window-1.0.0\AndroidManifest.xml:27:13-37
+85        <uses-library
+85-->[androidx.window:window:1.0.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\34dfed644555cdfa6b8466546fdf56c2\transformed\jetified-window-1.0.0\AndroidManifest.xml:28:9-30:40
+86            android:name="androidx.window.sidecar"
+86-->[androidx.window:window:1.0.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\34dfed644555cdfa6b8466546fdf56c2\transformed\jetified-window-1.0.0\AndroidManifest.xml:29:13-51
+87            android:required="false" />
+87-->[androidx.window:window:1.0.0] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\34dfed644555cdfa6b8466546fdf56c2\transformed\jetified-window-1.0.0\AndroidManifest.xml:30:13-37
+88
+89        <receiver
+89-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:34:9-52:20
+90            android:name="androidx.profileinstaller.ProfileInstallReceiver"
+90-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:35:13-76
+91            android:directBootAware="false"
+91-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:36:13-44
+92            android:enabled="true"
+92-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:37:13-35
+93            android:exported="true"
+93-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:38:13-36
+94            android:permission="android.permission.DUMP" >
+94-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:39:13-57
+95            <intent-filter>
+95-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:40:13-42:29
+96                <action android:name="androidx.profileinstaller.action.INSTALL_PROFILE" />
+96-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:41:17-91
+96-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:41:25-88
+97            </intent-filter>
+98            <intent-filter>
+98-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:43:13-45:29
+99                <action android:name="androidx.profileinstaller.action.SKIP_FILE" />
+99-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:44:17-85
+99-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:44:25-82
+100            </intent-filter>
+101            <intent-filter>
+101-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:46:13-48:29
+102                <action android:name="androidx.profileinstaller.action.SAVE_PROFILE" />
+102-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:47:17-88
+102-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:47:25-85
+103            </intent-filter>
+104            <intent-filter>
+104-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:49:13-51:29
+105                <action android:name="androidx.profileinstaller.action.BENCHMARK_OPERATION" />
+105-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:50:17-95
+105-->[androidx.profileinstaller:profileinstaller:1.3.1] C:\Users\Larry\.gradle\caches\9.0-milestone-1\transforms\cd86990968a0b7a14a00e3810d93a9ee\transformed\jetified-profileinstaller-1.3.1\AndroidManifest.xml:50:25-92
+106            </intent-filter>
+107        </receiver>
+108    </application>
+109
+110</manifest>

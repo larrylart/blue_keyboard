@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string-array name="volume_action_entries">
+        <item>None</item>
+        <item>Move Right</item>
+        <item>Move Left</item>
+        <item>Move Up</item>
+        <item>Move Down</item>
+        <item>Page Up</item>
+        <item>Page Down</item>
+        <item>Enter</item>
+        <item>Play</item>
+        <item>Stop</item>
+    </string-array>
+
+    <!-- Values we actually store in SharedPreferences -->
+    <string-array name="volume_action_values">
+        <item>none</item>
+        <item>move_right</item>
+        <item>move_left</item>
+        <item>move_up</item>
+        <item>move_down</item>
+        <item>page_up</item>
+        <item>page_down</item>
+        <item>enter</item>
+        <item>play</item>
+        <item>stop</item>
+    </string-array>
+
+</resources>

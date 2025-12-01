@@ -1,0 +1,20 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.blu.blukeyborg.app-mergeReleaseResources-39:/values-watch-v21/values-watch-v21.xml",
+            "map": [
+                {
+                    "source": "C:\\Users\\Larry\\.gradle\\caches\\9.0-milestone-1\\transforms\\b481dd81457674894614cdc54c91b698\\transformed\\appcompat-1.7.0\\res\\values-watch-v21\\values-watch-v21.xml",
+                    "from": {
+                        "startLines": "2,6,10",
+                        "startColumns": "4,4,4",
+                        "startOffsets": "55,271,499",
+                        "endLines": "5,9,13",
+                        "endColumns": "12,12,12",
+                        "endOffsets": "266,494,724"
+                    }
+                }
+            ]
+        }
+    ]
+}
