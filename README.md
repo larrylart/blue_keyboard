@@ -69,13 +69,14 @@ Press **Save**, and the dongle will:
 - Reboot into **normal BLE + USB HID mode** - 
 - Disable Wi-Fi and setup services permanently  
 
-### 📲 Pairing with KeePassDX-kb (v1.2.1+)
+### 📲 Pairing with KeePassDX-kb (v1.2.1+) or BluKeyborg
 
 1. In **KeePassDX-kb**, open:  
    **Settings → Output Devices → Select your dongle → Pair**
    Note: If pairing is advertised in the KeePassDX before you get into the **Settings → Output Devices** screen, cancel as the initial provisioning setup needs to be done in the output settings.
+   In **BluKeyborg**, open  **Settings → Select your dongle → Pair** and follow the same steps.
 
-2. The app will connect and request the **setup password** you configured.  
+3. The app will connect and request the **setup password** you configured.  
    If the prompt doesn’t appear immediately, toggle connect/disconnect once.
 
 ![KeePassDX Provisioning Pass](doc/keepassdx_dongle_provpass_small.jpg)
@@ -84,7 +85,11 @@ Press **Save**, and the dongle will:
    Note: if the dongle disconnects after provisioning, that is due to a bug I have not yet managed to track down. You can fix this by re-opening the app, than manually toggle the dongle connection from settings. This only seems to be happening on the initial connection.  
 
 ---
-## 🔄 Update **v1.2.1 – Binary MTLS + Wi-Fi Setup Portal**
+### 🔄 Update **v1.2.2** 
+- Fast Keys Support - The dongle now implements the new fast-key HID command mode.
+- The release package also includes the BluKeyborg Android companion app for general text sending and testing.
+
+### 🔄 Update **v1.2.1 – Binary MTLS + Wi-Fi Setup Portal**
 
 - 🔐 **New binary MTLS protocol (PROTO 1.2)**  
   - Per-session ECDH P-256 key exchange  
@@ -142,7 +147,7 @@ Press **Save**, and the dongle will:
    - In KeePassDX-kb, configure the "output device" as the Blue Keyboard dongle.  
    - Pair the phone and dongle if not already paired.
 
-3. From KeePassDX-kb 
+3. From KeePassDX-kb or BluKeyborg
    - The phone uses BLE to connect to the dongle.  
    - Starting from v1.2.1, it performs:
      - AppKey onboarding (once per device) if needed
