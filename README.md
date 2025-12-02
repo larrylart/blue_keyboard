@@ -84,7 +84,11 @@ Press **Save**, and the dongle will:
    Note: if the dongle disconnects after provisioning, that is due to a bug I have not yet managed to track down. You can fix this by re-opening the app, than manually toggle the dongle connection from settings. This only seems to be happening on the initial connection.  
 
 ---
-## 🔄 Update **v1.2.1 – Binary MTLS + Wi-Fi Setup Portal**
+### 🔄 Update **v1.2.2** 
+- Fast Keys Support - The dongle now implements the new fast-key HID command mode.
+- The release package also includes the BluKeyborg Android companion app for general text sending and testing.
+
+### 🔄 Update **v1.2.1 – Binary MTLS + Wi-Fi Setup Portal**
 
 - 🔐 **New binary MTLS protocol (PROTO 1.2)**  
   - Per-session ECDH P-256 key exchange  
