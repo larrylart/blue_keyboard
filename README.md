@@ -4,7 +4,7 @@
 
 This project started quick prototype of a tool that makes it easier to send passwords from a mobile password vault app to a PC or device **without having to type them manually**. Ever since I have also added a stand alone android companion app (BluKeyborg) that allows the user to use it as keyboard or controller.
 
-It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle (need the lcd version, see below). The dongle receives keystrokes over Bluetooth and then "types" them on the connected host machine.
+It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle (only works with the lcd version, see below). The dongle receives keystrokes over Bluetooth and then "types" them on the connected host machine.
 
 ⚠️ **Disclaimer:** This project is experimental. While basic testing has been done, bugs or quirks are likely. Contributions and improvements are welcome.
 
