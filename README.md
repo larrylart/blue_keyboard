@@ -59,7 +59,7 @@ On the setup page, configure:
 - **Host Keyboard Layout** – the layout of the PC/Mac the dongle types into. you will be able to change that at a latter stage as well, in the app.  
 - **Setup Password** – used to derive the PBKDF2 verifier for secure AppKey onboarding
 - **Allow multiple apps/devices** - by default uncheck, for extra scurity the dongle limits access to only one app and one device pairing. If you want to use the dongle with multiple devices or multiple apps, you will need to check these accordingly. 
-#### ⚠️ Note: if for whatever reason you want to reset the dongle back to the setup mode, at any stage, say because of failure to pair/set with the app, you can reset to default (setup mode) by pressing the dongle button once shortly, followed by a long press 3+ seconds until it displays on the screen "RESTED" and reboots in wifi setup mode imediatly after. This will reset all the pairing, settings and mTLS key, etc. 
+#### ⚠️ Note: if for whatever reason you want to reset the dongle back to the setup mode, at any stage, say because of failure to pair/set with the app, you can reset to default (setup mode) by pressing the dongle button once shortly, followed by a long press 3+ seconds until it displays on the screen "RESET" and reboots in wifi setup mode imediatly after. This will reset all the pairing, settings and mTLS key, etc. 
 
 ![Dongle Setup Form](doc/dongle_setup_form.jpg)
 
