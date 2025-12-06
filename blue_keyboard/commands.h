@@ -81,6 +81,8 @@ extern void onStringTyped(size_t numBytes);
 // -------------------------------------------------------------------
 static uint8_t g_appkey_chal[16];
 static bool    g_appkey_chal_pending = false;
+static uint16_t g_appkey_fail_count = 0;   // consecutive failed APPKEY proofs this boot
+static const uint16_t APPKEY_FAIL_LIMIT = 100; // 100 - should be reasonable enough
 
 // -------------------------------------------------------------------
 // HMAC-SHA256 helper
@@ -253,10 +255,20 @@ static inline bool setLayoutByName(const String& raw)
 ////////////////////////////////////////////////////////////////////
 static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 {
+    // Rate-limit APPKEY onboarding attempts: after too many failed proofs
+    // in this boot, block further GET_APPKEY / APPKEY_PROOF handling.
+    if( (op == 0xA0 || op == 0xA3) && g_appkey_fail_count >= APPKEY_FAIL_LIMIT ) 
+    {
+        const char* msg = "GET_APPKEY blocked";
+        sendFrame(0xFF, (const uint8_t*)msg, (uint16_t)strlen(msg));
+        return( true );
+    }	
+	
 	// :: GET_APPKEY (0xA0) — request KDF params + challenge
 	if( op == 0xA0 ) 
 	{ 
-		if (isAppKeyMarkedSet())
+		//if (isAppKeyMarkedSet())
+		if( isAppKeyMarkedSet() && !getAllowMultiAppProvisioning() )
 		{
 			const char* msg = "already set";
 			sendFrame(0xFF, (const uint8_t*)msg, (uint16_t)strlen(msg));
@@ -264,7 +276,7 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 		}
 
 		uint8_t salt16[16], verif32[32]; uint32_t iters=0;
-		if (!loadPwKdf(salt16, verif32, &iters)) 
+		if( !loadPwKdf(salt16, verif32, &iters) ) 
 		{
 		  const char* msg = "KDF missing";
 		  sendFrame(0xFF, (const uint8_t*)msg, (uint16_t)strlen(msg));
@@ -306,7 +318,7 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 		DPRINT("\n");*/
 
 		 // Basic sanity: must have outstanding challenge and correct size
-		if (!g_appkey_chal_pending || n != 32) 
+		if( !g_appkey_chal_pending || n != 32 ) 
 		{
 			const char* msg = "no pending chal or bad mac size";
 			sendFrame(0xFF, (const uint8_t*)msg, (uint16_t)strlen(msg));
@@ -358,9 +370,10 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 		for (int i=0; i<8; i++) DPRINT("%02x", (unsigned)p[i]); DPRINT("\n");
 		*/
 
-		if (memcmp(expect, p, 32) != 0) 
+		if( memcmp(expect, p, 32) != 0 ) 
 		{
 			DPRINTLN("[APPKEY] proof BAD");
+			g_appkey_fail_count++;
 			const char* e = "bad proof";
 			sendFrame(0xFF, (const uint8_t*)e, (uint16_t)strlen(e));
 			g_appkey_chal_pending = false;
@@ -375,7 +388,10 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 		// zero challenge and pending flag regardless
 		memset(g_appkey_chal, 0, sizeof(g_appkey_chal));
 		g_appkey_chal_pending = false;
-		if (!okWrap) 
+		// reset failure counter on success
+		g_appkey_fail_count = 0;  
+		
+		if( !okWrap ) 
 		{
 			const char* e = "send fail";
 			sendFrame(0xFF, (const uint8_t*)e, (uint16_t)strlen(e));

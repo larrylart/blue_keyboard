@@ -71,6 +71,19 @@ class FullKeyboardActivity : AppCompatActivity() {
 		)
 	}
 
+/*
+	private fun enableFullscreenImmersive() {
+		// We keep decor fitting ON so Android applies status-bar insets correctly
+		WindowCompat.setDecorFitsSystemWindows(window, true)
+
+		val controller = WindowInsetsControllerCompat(window, window.decorView)
+		controller.systemBarsBehavior =
+			WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+		// Hide ONLY nav bar.
+		controller.hide(WindowInsetsCompat.Type.navigationBars())
+	}
+*/
 	override fun onWindowFocusChanged(hasFocus: Boolean) {
 		super.onWindowFocusChanged(hasFocus)
 		if (hasFocus) {

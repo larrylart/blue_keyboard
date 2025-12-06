@@ -2,7 +2,7 @@
     name="release"
     package="com.blu.blukeyborg"
     minSdkVersion="24"
-    targetSdkVersion="34"
+    targetSdkVersion="35"
     mergedManifest="build\intermediates\merged_manifest\release\processReleaseMainManifest\AndroidManifest.xml"
     proguardFiles="build\intermediates\default_proguard_files\global\proguard-android-optimize.txt-8.13.1;proguard-rules.pro"
     partialResultsDir="build\intermediates\lint_vital_partial_results\release\lintVitalAnalyzeRelease\out"

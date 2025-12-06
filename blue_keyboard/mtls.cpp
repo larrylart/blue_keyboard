@@ -175,6 +175,15 @@ void mtls_reset()
 	memset(s_sessKey, 0, sizeof(s_sessKey));
 }
 
+extern "C" void mtls_onDisconnect()
+{
+    // fully wipe session + retry state
+    mtls_reset();      
+    s_lastB0.clear();
+    s_b0Retries  = 0;
+    s_b0NextAtMs = 0;
+}
+
 ////////////////////////////////////////////////////////////////////
 // Ensure the P-256 group and key objects are initialized once.
 // We keep the group and key structs around for the lifetime of the process.
@@ -421,11 +430,13 @@ bool mtls_sendHello_B0()
 	// Cache for retransmit until B1 arrives
 	s_lastB0.assign(pay, pay + sizeof(pay));
 	s_b0Retries  = 0;
-	s_b0NextAtMs = millis() + 300;   // first retry after 300 ms
+	s_b0NextAtMs = millis() + 200;   // first retry after 300 ms - increased
 
 	// top-level send via your binary framing (sendFrame in commands.h will pick MTLS path only after active)
-	bool ok = sendFrame(0xB0, pay, sizeof(pay));
-	DPRINT("[MTLS][B0] sendHello -> %s (sid=0x%08x)\n", ok?"OK":"FAIL", (unsigned)s_sid);
+	// commented this out here so it will run on a ticker instead
+	//bool ok = sendFrame(0xB0, pay, sizeof(pay));
+	//DPRINT("[MTLS][B0] sendHello -> %s (sid=0x%08x)\n", ok?"OK":"FAIL", (unsigned)s_sid);
+	bool ok = false;
 	
 	return ok;
 }
@@ -444,8 +455,12 @@ void mtls_tick()
 {
 	// Stop if session is active or no cached B0 or we exhausted retries
 	if( mtls_isActive() || s_lastB0.empty() ) return;
+	
+	const uint32_t RETRY_GAP_MS = 450;
+	const uint8_t  RETRY_MAX    = 16;
+	
 	// aprox 3s window at 300 ms pace
-	if( s_b0Retries >= 10 ) 
+	if( s_b0Retries >= RETRY_MAX ) 
 	{    
 		s_lastB0.clear();
 		return;
@@ -456,7 +471,7 @@ void mtls_tick()
 		DPRINT("[MTLS][B0] RETRY #%u\n", (unsigned)s_b0Retries + 1);
 		sendFrame(0xB0, s_lastB0.data(), (uint16_t)s_lastB0.size());
 		s_b0Retries++;
-		s_b0NextAtMs = now + 300;
+		s_b0NextAtMs = now + RETRY_GAP_MS;
 	}
 }
 

@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////
-//  blue_keyboard.ino (v1.2.2)
+//  blue_keyboard.ino (v1.2.3)
 //  Created by: Larry Lart
 //
 //  Main firmware for the BlueKeyboard / BluKey dongle.
@@ -69,6 +69,8 @@ extern "C"
 ////////////////////////////////////////////////////////////////////
 // forward decls from commands.h / mtls.cpp
 extern bool dispatch_binary_frame(const uint8_t* buf, size_t len);
+extern void mtls_tick();
+extern "C" void mtls_onDisconnect();
 
 // Global (defined in blue_keyboard.ino)
 KeyboardLayout m_nKeyboardLayout = KeyboardLayout::US_WINLIN;
@@ -78,6 +80,8 @@ static volatile bool g_echoOnConnect = false;
 
 Preferences gPrefs;
 bool g_allowPairing = true; // cached in RAM
+bool g_allowMultiApp = false;     // allow multiple apps to provision when true
+bool g_allowMultiDev = false;     // allow multiple devices to pair when true
 
 // Raw fast-path: per-connection, not persisted
 bool g_rawFastMode = false;
@@ -124,6 +128,7 @@ static uint32_t g_bootPasskey = 0;   // random per boot
 // Pairing UI gating flags
 static volatile bool g_encReady = false;           // becomes true on ENC_CHANGE/auth complete
 static volatile bool g_pinShowScheduled = false;   // we will show PIN only if still not encrypted after a short delay
+static volatile bool g_pinAllowedThisConn = false;   // only true for real pairing attempts
 static uint32_t g_pinDueAtMs = 0;
 static const uint32_t PIN_DELAY_MS = 600;          // 400–800ms works well, adjust as needed
 
@@ -144,6 +149,14 @@ uint8_t g_appKey[32] = {0};
 bool    g_appKeySet  = false;
 
 String g_BleName;  
+
+// Single-slot RX frame queue to keep heavy MTLS/command processing out of callbacks
+static volatile bool   g_framePending = false;
+static uint8_t         g_frameBuf[MAX_RX_MESSAGE_LENGTH];
+static size_t          g_frameLen     = 0;
+
+// mutex locker for critical section
+portMUX_TYPE g_frameMux = portMUX_INITIALIZER_UNLOCKED;
 
 //////////
 // exported to settings/commands/mtls
@@ -230,7 +243,7 @@ bool sendTX(const uint8_t* data, size_t len)
 	if( mtu < 23 ) mtu = 23;
 	const uint16_t maxPayload = mtu - 3;
 
-	DPRINT("[SENDTX] data=%s, mtu=%d max_payload=%d\n", data, mtu, maxPayload );
+	//DPRINT("[SENDTX] data=%s, mtu=%d max_payload=%d\n", data, mtu, maxPayload );
 
 	size_t off = 0;
 	while (off < len) 
@@ -398,7 +411,7 @@ void onStringTyped( size_t numBytes )
 void handleWrite( const std::string& val_in ) 
 {
 	// Quick hex log (first 64 bytes) - disable in release mode
-	if( !DEBUG_GLOBAL_DISABLED && DEBUG_ENABLED && !val_in.empty() ) 
+	/*if( !DEBUG_GLOBAL_DISABLED && DEBUG_ENABLED && !val_in.empty() ) 
 	{
 		const uint8_t* b0 = reinterpret_cast<const uint8_t*>(val_in.data());
 		size_t n0 = val_in.size(), m0 = n0 < 64 ? n0 : 64;
@@ -410,7 +423,10 @@ void handleWrite( const std::string& val_in )
 			hx += H[b0[i] & 0xF]; 
 		}
 		DPRINT("[CMD][RX] rawLen=%u hex[64]=%s\n", (unsigned)n0, hx.c_str());
-	}
+	}*/
+	
+	// debug heap alignment problem - just keep this in place for now - todo: clear if all good in the future 
+	String hx; hx.reserve(128); 
 	
 	if( val_in.empty() ) return;
 
@@ -433,6 +449,7 @@ void handleWrite( const std::string& val_in )
 		return; 
 	}
 
+/* we do the processing in the main loop
 	// IMPORTANT: Always try the binary dispatcher FIRST
 	// It will:
 	//  - handle B1/B3 (mTLS handshake / encrypted app frames)
@@ -444,7 +461,46 @@ void handleWrite( const std::string& val_in )
 		// frame was consumed (B1/B3/A* or a post-decrypt inner frame)
 		return;  
 	}
+*/
 
+	//////////////
+	// new processing scheduled for main loop
+    // At this point we know we have a full framed message [OP][LENle][PAYLOAD]
+    const size_t frameLen = 3 + len;
+
+    // Queue the frame for processing in loop(); drop if queue is busy
+    if( !g_framePending ) 
+	{
+		
+        if( frameLen <= MAX_RX_MESSAGE_LENGTH ) 
+		{
+			taskENTER_CRITICAL(&g_frameMux);
+			
+            memcpy((void*)g_frameBuf, b, frameLen);
+            g_frameLen     = frameLen;
+            g_framePending = true;
+			
+			taskEXIT_CRITICAL(&g_frameMux);
+			
+        } else 
+		{
+            // too big – send error
+            const char* e = "too big";
+            sendFrame(0xFF, (const uint8_t*)e, strlen(e));
+        }
+		
+		
+    } else 
+	{
+        // queue busy – optional: send back a "busy" error
+        const char* e = "busy";
+        sendFrame(0xFF, (const uint8_t*)e, strlen(e));
+    }
+
+    // Return quickly; actual processing happens in loop()
+	return;
+
+/* moved this section in the main look
 	// Legacy plaintext path below (only reached if not a recognized binary frame)
 
 	// Small helper for LOCKED UI
@@ -468,6 +524,8 @@ void handleWrite( const std::string& val_in )
 	const char* e="need MTLS";
 	sendFrame( 0xFF,(const uint8_t*)e,strlen(e) );
 	return;
+*/
+
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -527,8 +585,10 @@ static void scheduleHello( uint32_t delayMs = 80 )
 	// (2) Provisioned: DO NOT send any plaintext banner.
 	// Immediately start MTLS with B0 (binary hello).
 	DPRINTLN("[HELLO] appkey present; skipping plaintext, sending B0...");
-	bool ok = mtls_sendHello_B0(); // already implemented in mtls.cpp :contentReference[oaicite:1]{index=1}
-	DPRINT("[HELLO] mtls_sendHello_B0() -> %s\n", ok ? "OK" : "FAILED");
+	// already implemented in mtls.cpp 
+	bool ok = mtls_sendHello_B0(); 
+	//delay(2); //debug test
+	//DPRINT("[HELLO] mtls_sendHello_B0() -> %s\n", ok ? "OK" : "FAILED");
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -634,12 +694,15 @@ static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ )
 			if( g_encReady ) 
 			{
 				cancelPin();
+				g_pinAllowedThisConn = false;
 
 				// LOCK after the very first successful bonded link when pairing is open:
 				ble_gap_conn_desc d{};
 				if( ble_gap_conn_find(event->enc_change.conn_handle, &d) == 0 ) 
 				{
-					if( d.sec_state.bonded && getAllowPairing() ) 
+					//if( d.sec_state.bonded && getAllowPairing() ) 
+					// todo: see how can I use a whitelist enforcement for multiple devices here - just a thought 
+					if( d.sec_state.bonded && getAllowPairing() && !getAllowMultiDevicePairing() ) 
 					{
 						// Persist lock
 						setAllowPairing(false);  // -> writes NVS via settings.h
@@ -779,15 +842,66 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		setLED(CRGB::Green);
 		currentColor = CRGB::Green;
 
-		// Reset link flags and start security; show pairing UI + PIN.
+		/*// Reset link flags and start security; show pairing UI + PIN.
 		g_linkEncrypted = g_linkAuthenticated = false;
 		g_encReady = false;
+
+		// Request 30–50 ms interval, 0 latency, 4 s supervision timeout
+		server->updateConnParams(
+			info.getConnHandle(),
+			24,   // min interval  = 24 * 1.25 ms = 30 ms
+			40,   // max interval  = 40 * 1.25 ms = 50 ms
+			0,    // latency       = 0
+			400   // timeout       = 400 * 10 ms  = 4000 ms
+		);
 
 		// Kick off security on every link, but DO NOT show the PIN yet.
 		NimBLEDevice::startSecurity(info.getConnHandle());
 
 		// Defer showing the PIN — if bond exists, ENC will succeed quickly and we’ll cancel.
-		schedulePinMaybe();
+		schedulePinMaybe();*/
+		
+		// Reset link flags and start security
+		g_linkEncrypted      = false;
+		g_linkAuthenticated  = false;
+		g_encReady           = false;
+		g_pinShowScheduled   = false;
+		g_pinAllowedThisConn = false;
+
+		// Request 30–50 ms interval, 0 latency, 4 s supervision timeout
+		server->updateConnParams(
+			info.getConnHandle(),
+			24,   // min interval  = 24 * 1.25 ms = 30 ms
+			40,   // max interval  = 40 * 1.25 ms = 50 ms
+			0,    // latency       = 0
+			400   // timeout       = 400 * 10 ms  = 4000 ms
+		);
+
+		NimBLEDevice::startSecurity(info.getConnHandle());
+
+		// Decide if this connection is eligible to show a PIN.
+		// We only want PIN for *new* pairing while pairing is open.
+		ble_gap_conn_desc d{};
+		if( ble_gap_conn_find(info.getConnHandle(), &d) == 0 ) 
+		{
+			const bool alreadyBonded = d.sec_state.bonded;
+			const bool pairingOpen   = getAllowPairing();
+
+			if (!alreadyBonded && pairingOpen) 
+			{
+				g_pinAllowedThisConn = true;
+				schedulePinMaybe();  // arm the delay
+			}
+			
+		} else 
+		{
+			// Fallback: if pairing is open and we can't query, assume it's OK to show PIN.
+			if (getAllowPairing()) 
+			{
+				g_pinAllowedThisConn = true;
+				schedulePinMaybe();
+			}
+		}				
 
 		//displayStatus("PAIRING...", TFT_YELLOW, true); // should implement this latter ?
 		//showPin(g_bootPasskey);
@@ -806,9 +920,12 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		g_linkEncrypted = false;
 		g_linkAuthenticated = false;
 		g_encReady = false;
+		g_pinAllowedThisConn = false; 
 		  
 		// kill raw fast mode on link drop
 		g_rawFastMode = false;		  
+		  
+		mtls_onDisconnect();
 		  
 		setLED(CRGB::Black);
 		//displayStatus("ADVERTISING", TFT_YELLOW, true);
@@ -828,7 +945,12 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		g_linkAuthenticated = info.isAuthenticated();
 		if( g_linkEncrypted && g_linkAuthenticated ) 
 		{
+			// Mark link as fully ready before the PIN timeout in loop()
+			g_encReady = true;
+		
 			cancelPin();
+			g_pinAllowedThisConn = false; 
+			
 			displayStatus("SECURED", TFT_GREEN, true);
 			// flag for mainb loop to display ready
 			g_displayReadyScheduled = true;
@@ -1060,6 +1182,15 @@ void setup()
 	Serial.begin(115200);
 	delay(50);                 // tiny pause to allow serial to come up
 	DPRINTLN("\n=== BLUE_KEYBOARD boot ===");
+	
+    esp_reset_reason_t reason = esp_reset_reason();
+    Serial.printf("\n=== BLUE_KEYBOARD boot ===\n[BOOT] reset reason = %d\n", (int)reason);	
+	
+	// USB HID first  
+	USB.begin();
+	delay(200);
+	Keyboard.begin();
+	
 #else
 	// USB HID first  
 	USB.begin();
@@ -1073,6 +1204,7 @@ void setup()
 	NimBLEDevice::init( g_BleName.c_str() );
 	//NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RANDOM);
 	NimBLEDevice::setDeviceName( g_BleName.c_str() );
+	
 	NimBLEDevice::setPower(ESP_PWR_LVL_P9);
 	NimBLEDevice::setMTU(247);
 
@@ -1179,8 +1311,55 @@ void loop()
 	
 	// just to notify on connect
 	flushHelloIfDue();
+
+	////////////////////
+	// :: moved from handleWrite
+    // Process any pending BLE frame outside of NimBLE callbacks
+    if( g_framePending ) 
+	{
+        // avoid races with onWrite()
+        noInterrupts();
+		
+		taskENTER_CRITICAL(&g_frameMux);
+		
+        size_t len = g_frameLen;
+        static uint8_t localBuf[MAX_RX_MESSAGE_LENGTH];
+        memcpy(localBuf, g_frameBuf, len);
+        g_framePending = false;
+		
+		taskEXIT_CRITICAL(&g_frameMux);
+		
+        interrupts();
+
+        // First try the binary dispatcher (MTLS + commands)
+        if( dispatch_binary_frame(localBuf, len) ) 
+		{
+            // frame was consumed (B1/B3/A* or a post-decrypt inner frame)
+			
+        } else 
+		{
+            // Legacy plaintext path (your previous logic from handleWrite)
+
+            // Small helper for LOCKED UI
+            auto locked_ui = [&]() {
+                displayStatus("LOCKED", TFT_RED, true);
+                g_blinkLedScheduled = true;
+            };
+
+            // If we’re unprovisioned and hit here, it means the frame wasn’t A0/A3 (these are handled above).
+            if( !isAppKeyMarkedSet() ) {
+                locked_ui();
+                const char* e="need APPKEY";
+                sendFrame(0xFF,(const uint8_t*)e,strlen(e));
+            } else {
+                // Provisioned but not an mTLS frame - plaintext is not allowed anymore.
+                locked_ui();
+                const char* e="need MTLS";
+                sendFrame(0xFF,(const uint8_t*)e,strlen(e));
+            }
+        }
+    }
 	
-	extern void mtls_tick();
 	// drives B0 retries while not active	
 	mtls_tick();    
 	
@@ -1193,7 +1372,11 @@ void loop()
 	}
 	
 	// show PIN only if encryption did NOT come up quickly (like true pairing)
-	if( g_pinShowScheduled && !g_encReady && (int32_t)(millis() - g_pinDueAtMs) >= 0) 
+	//if( g_pinShowScheduled && !g_encReady && (int32_t)(millis() - g_pinDueAtMs) >= 0) 
+	if( g_pinAllowedThisConn &&
+		g_pinShowScheduled &&
+		!g_encReady &&
+		(int32_t)(millis() - g_pinDueAtMs) >= 0)
 	{
 		// confident this is an actual pairing
 		showPin(g_bootPasskey);              

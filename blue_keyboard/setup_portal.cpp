@@ -146,6 +146,8 @@ static String renderForm(const String& err = "")
 		".err{background:#fff0f0;border:1px solid #e7b3b3;color:var(--err);padding:.7rem .8rem;border-radius:10px;margin:0 0 12px;}"
 		".hint{font-size:12px;color:var(--muted);margin:.35rem 0 0;}"
 		".inline{display:flex;gap:8px;align-items:center;}"
+		".checkline { display: flex; align-items: center; gap: 8px; white-space: nowrap; }"
+		".checkline input[type='checkbox'] { margin: 0; width: 18px; height: 18px; }"
 		".btn{margin-top:12px;background:var(--accent);border:0;color:#fff;font-weight:600;letter-spacing:.3px;border-radius:10px;cursor:pointer;transition:background .2s;padding:.7rem;}"
 		".btn:hover{background:#0848c1;}"
 		".btn[disabled]{opacity:.55;cursor:not-allowed;filter:grayscale(25%);}"
@@ -199,6 +201,11 @@ static String renderForm(const String& err = "")
 		  "<div id='pok' class='ok' style='display:none'>Looks good ✓</div>"
 		"</div>"
 	  "</div>"
+		"<div class='row two' style='margin-top:16px;'>"
+			"<div class='checkline'><input type='checkbox' id='multiApp' name='multiApp'><label for='multiApp'>Allow multiple apps</label></div>"
+			"<div class='checkline'><input type='checkbox' id='multiDev' name='multiDev'><label for='multiDev'>Allow multiple devices</label></div>"
+		"</div>"
+      "<div class='hint'>Leave unchecked to keep the default: single app + single device.</div>"
 	  "<button id='submitBtn' class='btn' type='submit' disabled>Save &amp; Restart</button>"
 	"</form></div></div>"
 	"<script>"
@@ -324,7 +331,9 @@ bool runSetupPortal()
 		String pw1 = server.hasArg("pw1") ? server.arg("pw1") : "";
 		String pw2 = server.hasArg("pw2") ? server.arg("pw2") : "";
 		String layoutStr = server.hasArg("layout") ? server.arg("layout") : "";
-
+		bool allowMultiApp = server.hasArg("multiApp");
+		bool allowMultiDev = server.hasArg("multiDev");
+		
 		// Basic validation
 		if( ble.length() < 3 || ble.length() > 24 ) 
 		{
@@ -349,6 +358,10 @@ bool runSetupPortal()
 		// Persist BLE name + layout
 		saveBleName(ble);
 		saveLayoutToNVS(chosen);
+
+		// Persist multi-app / multi-device options
+		setAllowMultiAppProvisioning(allowMultiApp);
+		setAllowMultiDevicePairing(allowMultiDev);
 
 		// Prepare password KDF: salt + PBKDF2(password, salt, iters) - verifier
 		uint8_t salt[16];

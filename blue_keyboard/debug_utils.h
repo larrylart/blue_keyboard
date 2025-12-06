@@ -17,6 +17,9 @@
 #else
   #define DPRINT(...)
   #define DPRINTLN(...)
+  // No serial, but keep a tiny delay to preserve timing - chasing a ephemeral bug caused by timing - works with debug enabled
+//  #define DPRINT(...)    do { delayMicroseconds(50); } while (0)
+//  #define DPRINTLN(...)  do { delayMicroseconds(50); } while (0)
 #endif
 
 #endif // DEBUG_UTILS_H

@@ -147,6 +147,7 @@
   <androidx.wear.tiles/>
   <androidx.wear.watchface/>
   <androidx.wear.watchfacepush/>
+  <androidx.webgpu/>
   <androidx.webkit/>
   <androidx.window/>
   <androidx.window.extensions.core/>

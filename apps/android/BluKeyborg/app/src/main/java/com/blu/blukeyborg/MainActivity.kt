@@ -59,7 +59,15 @@ class MainActivity : AppCompatActivity() {
 		
 		//Log.d("BK/Main", "onCreate(instance=$instanceId, savedInstance=${savedInstanceState != null})")
 		
+		// Let the system handle status/nav bar insets for us
+		WindowCompat.setDecorFitsSystemWindows(window, true)		
+		
         setContentView(R.layout.activity_main)
+
+		//window.statusBarColor = 0xFF000000.toInt()   
+		WindowInsetsControllerCompat(window, window.decorView).apply {
+			isAppearanceLightStatusBars = true    
+		}
 
         historyContainer = findViewById(R.id.historyContainer)
         historyScroll = findViewById(R.id.historyScroll)
@@ -92,6 +100,8 @@ class MainActivity : AppCompatActivity() {
 
 			insets
 		}
+
+		hideBottomNavBar()
 
 		settingsButtonTop.setOnClickListener {
 			startActivity(
@@ -223,7 +233,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-
+/*
 	override fun onWindowFocusChanged(hasFocus: Boolean) {
 		super.onWindowFocusChanged(hasFocus)
 		if (hasFocus) {
@@ -232,17 +242,32 @@ class MainActivity : AppCompatActivity() {
 	}
 
 	private fun enableFullscreenImmersive() {
-		// Let our content go behind system bars
-		WindowCompat.setDecorFitsSystemWindows(window, false)
+		// We keep decor fitting ON so Android applies status-bar insets correctly
+		WindowCompat.setDecorFitsSystemWindows(window, true)
 
 		val controller = WindowInsetsControllerCompat(window, window.decorView)
 		controller.systemBarsBehavior =
 			WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
-		controller.hide(
-			WindowInsetsCompat.Type.statusBars() or
-				WindowInsetsCompat.Type.navigationBars()
-		)
+		// Hide ONLY nav bar.
+		controller.hide(WindowInsetsCompat.Type.navigationBars())
+	}
+*/
+	override fun onWindowFocusChanged(hasFocus: Boolean) {
+		super.onWindowFocusChanged(hasFocus)
+		if (hasFocus) {
+			hideBottomNavBar()
+		}
+	}
+
+	private fun hideBottomNavBar() {
+		val controller = WindowInsetsControllerCompat(window, window.decorView)
+
+		controller.systemBarsBehavior =
+			WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+		// ❗ HIDE ONLY NAV BAR — do NOT hide status bar
+		controller.hide(WindowInsetsCompat.Type.navigationBars())
 	}
 
 
@@ -628,11 +653,11 @@ class MainActivity : AppCompatActivity() {
 
     }
 
-    /**
-     * Intercept hardware volume keys in the main screen.
-     * If the configured action is not NONE, consume the event
-     * so Android does not change the media volume.
-     */
+    ////////////////////////////////////////////////////////////////
+    // Intercept hardware volume keys in the main screen.
+    // If the configured action is not NONE, consume the event
+    // so Android does not change the media volume.
+    ////////////////////////////////////////////////////////////////
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         return when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP -> {

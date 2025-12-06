@@ -1,4 +1,4 @@
-#Mon Dec 01 21:20:14 GMT 2025
+#Sat Dec 06 13:35:05 GMT 2025
 base.0=D\:\\home\\projects\\KeePassY\\BluKeyborg\\app\\build\\intermediates\\dex\\release\\mergeDexRelease\\classes.dex
 path.0=classes.dex
 renamed.0=classes.dex

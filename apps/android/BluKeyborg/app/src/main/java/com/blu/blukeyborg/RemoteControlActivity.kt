@@ -14,6 +14,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.ViewCompat
+import kotlin.math.max
 
 class RemoteControlActivity : AppCompatActivity() {
 
@@ -24,6 +26,8 @@ class RemoteControlActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+		WindowCompat.setDecorFitsSystemWindows(window, false)
+		
         // Transparent full-screen root
         val root = FrameLayout(this).apply {
             setBackgroundColor(0x00000000) // fully transparent
@@ -85,6 +89,31 @@ class RemoteControlActivity : AppCompatActivity() {
 
         setContentView(root)
 
+        // Set status bar icons to be dark (since the bar will be transparent by default)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+        }
+
+		 // handle top bar issue in immersive view
+			ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+				val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
+				val systemBarsInsets = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+
+				val bottomPadding = maxOf(systemBarsInsets.bottom, imeInsets.bottom)
+
+				v.setPadding(
+					systemBarsInsets.left,
+					systemBarsInsets.top,   // keeps content below status bar
+					systemBarsInsets.right,
+					bottomPadding           // keeps content above nav bar / IME
+				)
+
+				insets
+			}
+
+		// hide only bottom nav bar
+		hideBottomNavBar()
+
         // Make window fully transparent and non-dimming
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window.setBackgroundDrawableResource(android.R.color.transparent)
@@ -109,16 +138,18 @@ class RemoteControlActivity : AppCompatActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Enable immersive full-screen (hide status + nav bars)
-        enableFullscreenImmersive()
+        //enableFullscreenImmersive()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
-            enableFullscreenImmersive()
+			hideBottomNavBar()
+            //enableFullscreenImmersive()
         }
     }
 
+/*
     private fun enableFullscreenImmersive() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
@@ -131,6 +162,17 @@ class RemoteControlActivity : AppCompatActivity() {
                     WindowInsetsCompat.Type.navigationBars()
         )
     }
+*/
+
+	private fun hideBottomNavBar() {
+		val controller = WindowInsetsControllerCompat(window, window.decorView)
+		controller.systemBarsBehavior =
+			WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+
+		// Hide ONLY navigation bar (same as settings activity)
+		controller.hide(WindowInsetsCompat.Type.navigationBars())
+	}
+
 
     private fun handleVolumeKeyPress(isVolumeUp: Boolean) {
         if (fastKeysEnabled) {

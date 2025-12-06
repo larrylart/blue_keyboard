@@ -11,7 +11,7 @@
 
 // Protocol / firmware identifiers 
 #define PROTO_VER "1.3"
-#define FW_VER    "1.2.2"
+#define FW_VER    "1.2.3"
 
 /////////////////////////////
 // *** DEBUG ***
@@ -29,6 +29,8 @@ extern Preferences gPrefs;
 extern String g_BleName;  
 
 extern bool g_allowPairing; 
+extern bool g_allowMultiApp; 
+extern bool g_allowMultiDev;
 
 extern uint8_t g_appKey[32];
 extern bool    g_appKeySet;
@@ -39,7 +41,6 @@ static const char* const NVS_KEY_BLE_NAME     = "ble_name";     // string
 static const char* const NVS_KEY_PW_SALT      = "pw_salt";      // 16 bytes
 static const char* const NVS_KEY_PW_VERIF     = "pw_verif";     // 32 bytes (HMAC/PBKDF2 result)
 static const char* const NVS_KEY_PW_ITERS     = "pw_iters";     // uint32
-
 
 ////////////////////////////////////////////////////////////////////
 // Ensure NVS namespace is open for RW access
@@ -67,6 +68,8 @@ static void ensurePrefsOpenRW()
 // -----------------------------------------------------------------------------
 static const char* const NVS_KEY_LAYOUT    = "kb_layout";
 static const char* const NVS_KEY_ALLOWPAIR = "allowPair";
+static const char* const NVS_KEY_ALLOW_MULTI_APP = "allowMApp";
+static const char* const NVS_KEY_ALLOW_MULTI_DEV = "allowMDev";
 // app key generation/persistent storage
 static const char* const NVS_KEY_APPKEY     = "app_key32";   // 32 bytes
 static const char* const NVS_KEY_APPKEY_SET = "app_key_set"; // 0/1
@@ -121,6 +124,58 @@ static void loadPairingFlagFromNVS()
 static void setAllowPairing(bool allow)
 {
     savePairingFlagToNVS(allow);
+}
+
+////////////////////////////////////////////////////////////////////
+// Multi-app provisioning and multi-device pairing flags.
+// These are persisted in NVS but cached in RAM for quick access.
+////////////////////////////////////////////////////////////////////
+static bool getAllowMultiAppProvisioning()
+{
+    return( g_allowMultiApp );
+}
+
+static bool getAllowMultiDevicePairing()
+{
+    return( g_allowMultiDev );
+}
+
+static void saveAllowMultiAppToNVS(bool allow)
+{
+    ensurePrefsOpenRW();
+    gPrefs.putUChar(NVS_KEY_ALLOW_MULTI_APP, allow ? 1 : 0);
+    g_allowMultiApp = allow;
+}
+
+static void saveAllowMultiDeviceToNVS(bool allow)
+{
+    ensurePrefsOpenRW();
+    gPrefs.putUChar(NVS_KEY_ALLOW_MULTI_DEV, allow ? 1 : 0);
+    g_allowMultiDev = allow;
+}
+
+static void loadAllowMultiAppFromNVS()
+{
+    ensurePrefsOpenRW();
+    uint8_t v = gPrefs.getUChar(NVS_KEY_ALLOW_MULTI_APP, 0);
+    g_allowMultiApp = (v != 0);
+}
+
+static void loadAllowMultiDeviceFromNVS()
+{
+    ensurePrefsOpenRW();
+    uint8_t v = gPrefs.getUChar(NVS_KEY_ALLOW_MULTI_DEV, 0);
+    g_allowMultiDev = (v != 0);
+}
+
+static void setAllowMultiAppProvisioning(bool allow)
+{
+    saveAllowMultiAppToNVS(allow);
+}
+
+static void setAllowMultiDevicePairing(bool allow)
+{
+    saveAllowMultiDeviceToNVS(allow);
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -276,7 +331,7 @@ static void initSettings()
 	// initiliaze load ble name
 	initBleNameGlobal();
 
-    // ---- Load keyboard layout ----
+    // Load keyboard layout
     uint8_t raw = gPrefs.getUChar(
         NVS_KEY_LAYOUT,
         static_cast<uint8_t>(KeyboardLayout::US_WINLIN));
@@ -286,9 +341,13 @@ static void initSettings()
 
     m_nKeyboardLayout = static_cast<KeyboardLayout>(raw);
 
-    // ---- Load pairing flag ----
+    // Load pairing flag
     uint8_t v = gPrefs.getUChar(NVS_KEY_ALLOWPAIR, 1);
     g_allowPairing = (v != 0);
+	
+    // Load multi-app / multi-device flags
+    loadAllowMultiAppFromNVS();
+    loadAllowMultiDeviceFromNVS();	
 	
     // load if app key was set
    loadOrGenAppKeyForMTLS();

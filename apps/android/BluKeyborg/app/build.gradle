@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace 'com.blu.blukeyborg'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.blu.blukeyborg"
         minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "0.1"
+        targetSdk 35
+        versionCode 5
+        versionName "1.0.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -6,9 +6,9 @@
     maven="BluKeyborg:app:unspecified"
     agpVersion="8.13.1"
     buildFolder="build"
-    bootClassPath="C:\Users\Larry\AppData\Local\Android\Sdk\platforms\android-34\android.jar;C:\Users\Larry\AppData\Local\Android\Sdk\build-tools\35.0.0\core-lambda-stubs.jar"
+    bootClassPath="C:\Users\Larry\AppData\Local\Android\Sdk\platforms\android-35\android.jar;C:\Users\Larry\AppData\Local\Android\Sdk\build-tools\35.0.0\core-lambda-stubs.jar"
     javaSourceLevel="17"
-    compileTarget="android-34"
+    compileTarget="android-35"
     neverShrinking="true">
   <lintOptions
       abortOnError="true"
