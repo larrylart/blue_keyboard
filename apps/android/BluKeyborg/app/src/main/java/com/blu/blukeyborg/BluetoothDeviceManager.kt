@@ -614,7 +614,7 @@ class BluetoothDeviceManager(private val context: Context)
 					*/
 					
 					// Optional MTU hint – see next section
-					val wantMtu = 247 // or 185/247 if your testing says it's stable
+					val wantMtu = 247 // or 185/247 if your testing says it's stable				
 					if (android.os.Build.VERSION.SDK_INT >= 21) {
 						try {
 							logd("requestMtu($wantMtu)")

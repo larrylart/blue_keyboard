@@ -1992,13 +1992,22 @@ object BleHub
 	// GATT callback. If that behaviour changes, update this helper to
 	// explicitly write the CCCD descriptor instead of "priming" it.
 	////////////////////////////////////////////////////////////////////
+//	private fun ensureNotificationsEnabled(addr: String, onDone: (Boolean, String?) -> Unit) {
+//		// Stub fall-back: start + immediately stop a stream to force CCCD = ON.
+//		ensureMgr().startNotificationStream { /* prime CCCD */ }
+//		android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+//			ensureMgr().stopNotificationStream()
+//			onDone(true, null)
+//		}, 100) // 100 ms is enough to write CCCD
+//	}
+
+	// new approach
 	private fun ensureNotificationsEnabled(addr: String, onDone: (Boolean, String?) -> Unit) {
-		// Stub fall-back: start + immediately stop a stream to force CCCD = ON.
-		ensureMgr().startNotificationStream { /* prime CCCD */ }
-		android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-			ensureMgr().stopNotificationStream()
-			onDone(true, null)
-		}, 100) // 100 ms is enough to write CCCD
+		// BluetoothDeviceManager already discovers services and writes CCCD
+		// in its GATT callback, so by the time connect() reports success
+		// notifications are enabled. Do not start a dummy stream here, it
+		// can race with the banner/B0 and eat the first notification.
+		onDone(true, null)
 	}
 
 }
