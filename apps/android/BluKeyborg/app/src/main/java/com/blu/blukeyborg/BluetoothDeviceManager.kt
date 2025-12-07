@@ -91,6 +91,10 @@ class BluetoothDeviceManager(private val context: Context)
     private val rssiMap = mutableMapOf<String, Int>()
     @Volatile private var rssiCallback: ((Map<String, Int>) -> Unit)? = null
 
+	// track if we've already kicked off a discoverServices() for this connection
+	@Volatile private var servicesDiscoveryStarted: Boolean = false
+
+
 	// Tracks the MTU negotiated with the current GATT connection.
 	// Default is 23 until onMtuChanged() is called.
 	@Volatile private var currentMtu: Int = 23
@@ -468,6 +472,7 @@ class BluetoothDeviceManager(private val context: Context)
 		// notify
         notifyCharacteristic = null
         notificationsEnabled = false
+		servicesDiscoveryStarted = false
 		
 		synchronized(notifBuffer) { notifBuffer.clear() }
 		try { notifTimeouts.removeCallbacksAndMessages(null) } catch (_: Throwable) {}
@@ -511,6 +516,7 @@ class BluetoothDeviceManager(private val context: Context)
 		closeAfterOp = false
 		connectedAddress = address
 		discovered = false
+		servicesDiscoveryStarted = false
 
 		// arm connect watchdog if requested
 		main.removeCallbacks(connectTimeoutRunnable)
@@ -591,42 +597,63 @@ class BluetoothDeviceManager(private val context: Context)
 						
 						logd("requestConnectionPriority failed")
 					}
-				}
+				}	
 
-				/* seems to fail on newq phones? 
-				// Request a larger MTU so the dongle can send the whole line in one notify
-				if (android.os.Build.VERSION.SDK_INT >= 21) {
-					//val ok = try { g.requestMtu(247) } catch (_: Throwable) { false }
-					val ok = try { g.requestMtu(130) } catch (_: Throwable) { false }
-					if (!ok) {
-						// If request failed, proceed anyway
+					/* seems to fail on newq phones? 
+					// Request a larger MTU so the dongle can send the whole line in one notify
+					if (android.os.Build.VERSION.SDK_INT >= 21) {
+						//val ok = try { g.requestMtu(247) } catch (_: Throwable) { false }
+						val ok = try { g.requestMtu(130) } catch (_: Throwable) { false }
+						if (!ok) {
+							// If request failed, proceed anyway
+							g.discoverServices()
+						}
+					} else {
 						g.discoverServices()
 					}
-				} else {
-					g.discoverServices()
-				}
-				*/
-				
-				// Optional MTU hint – see next section
-				val wantMtu = 247 // or 185/247 if your testing says it's stable
-				if (android.os.Build.VERSION.SDK_INT >= 21) {
-					try {
-						logd("requestMtu($wantMtu)")
-						g.requestMtu(wantMtu)
-					} catch (t: Throwable) {
-						logd("requestMtu($wantMtu) threw: ${t.message}")
-						// We'll still discover services below
+					*/
+					
+					// Optional MTU hint – see next section
+					val wantMtu = 247 // or 185/247 if your testing says it's stable
+					if (android.os.Build.VERSION.SDK_INT >= 21) {
+						try {
+							logd("requestMtu($wantMtu)")
+							val ok = g.requestMtu(wantMtu)
+							if (!ok) {
+								// If MTU request was rejected synchronously, fall back to immediate discovery
+								if (!servicesDiscoveryStarted) {
+									servicesDiscoveryStarted = true
+									logd("requestMtu($wantMtu) returned false, calling discoverServices() immediately")
+									g.discoverServices()
+								}
+							} else {
+								// Normal case: we'll call discoverServices() in onMtuChanged()
+								logd("requestMtu($wantMtu) accepted, waiting for onMtuChanged()")
+							}
+						} catch (t: Throwable) {
+							logd("requestMtu($wantMtu) threw: ${t.message}")
+							if (!servicesDiscoveryStarted) {
+								servicesDiscoveryStarted = true
+								logd("Falling back to discoverServices() after MTU exception")
+								try { g.discoverServices() } catch (t2: Throwable) {
+									loge("discoverServices() failed", t2)
+									fail("Service discovery start failed: ${t2.message}")
+								}
+							}
+						}
+					} else {
+						// Pre-21: no MTU callback – discover services immediately once
+						if (!servicesDiscoveryStarted) {
+							servicesDiscoveryStarted = true
+							try {
+								logd("discoverServices() (pre-21)")
+								g.discoverServices()
+							} catch (t: Throwable) {
+								loge("discoverServices() failed", t)
+								fail("Service discovery start failed: ${t.message}")
+							}
+						}
 					}
-				}
-
-				// Always discover services, independent of MTU
-				try {
-					logd("discoverServices() after successful connect")
-					g.discoverServices()
-				} catch (t: Throwable) {
-					loge("discoverServices() failed", t)
-					fail("Service discovery start failed: ${t.message}")
-				}				
 				
 				
 			// Any other transition (disconnect / error) is treated as a failure
@@ -749,8 +776,19 @@ class BluetoothDeviceManager(private val context: Context)
             // Record negotiated MTU and continue with service discovery.
             // We ignore status here and always try to discover services.			
 			currentMtu = mtu
-			// Continue to service discovery after MTU negotiation
-			try { g.discoverServices() } catch (_: Throwable) {}
+			// Only kick off discovery once per connection
+			if (!servicesDiscoveryStarted) {
+				servicesDiscoveryStarted = true
+				try {
+					logd("discoverServices() after MTU negotiation")
+					g.discoverServices()
+				} catch (t: Throwable) {
+					loge("discoverServices() after MTU failed", t)
+					fail("Service discovery failed after MTU: ${t.message}")
+				}
+			} else {
+				logd("onMtuChanged: servicesDiscoveryStarted already true, skipping discoverServices()")
+			}
 		}
 
 		override fun onCharacteristicWrite(
