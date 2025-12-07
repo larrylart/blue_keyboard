@@ -2,9 +2,9 @@
 
 ## Overview
 
-This project is a quick prototype of a tool that makes it easier to send passwords from a mobile password vault app to a PC or device **without having to type them manually**.  
+This project started as a quick prototype of a tool that makes it easier to send passwords from a mobile password vault app to a PC or device **without having to type them manually**. Ever since I have also added a stand alone android companion app (BluKeyborg) that allows the user to use it as keyboard or controller.
 
-It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle. The dongle receives keystrokes over Bluetooth and then "types" them on the connected host machine.
+It works as a **USB HID keyboard emulator** running on an ESP32-S3 dongle (only works with the lcd version, see below). The dongle receives keystrokes over Bluetooth and then "types" them on the connected host machine.
 
 ⚠️ **Disclaimer:** This project is experimental. While basic testing has been done, bugs or quirks are likely. Contributions and improvements are welcome.
 
@@ -57,7 +57,9 @@ On the setup page, configure:
 
 - **Bluetooth Name** – the name shown during BLE scanning. You can replace the default with your own Bluetooth name, useful if you have multiple dongles.  
 - **Host Keyboard Layout** – the layout of the PC/Mac the dongle types into. you will be able to change that at a latter stage as well, in the app.  
-- **Setup Password** – used to derive the PBKDF2 verifier for secure AppKey onboarding  
+- **Setup Password** – used to derive the PBKDF2 verifier for secure AppKey onboarding
+- **Allow multiple apps/devices** - by default uncheck, for extra scurity the dongle limits access to only one app and one device pairing. If you want to use the dongle with multiple devices or multiple apps, you will need to check these accordingly. 
+#### ⚠️ Note: if for whatever reason you want to reset the dongle back to the setup mode, at any stage, say because of failure to pair/set with the app, you can reset to default (setup mode) by pressing the dongle button once shortly, followed by a long press 3+ seconds until it displays on the screen "RESET" and reboots in wifi setup mode imediatly after. This will reset all the pairing, settings and mTLS key, etc. 
 
 ![Dongle Setup Form](doc/dongle_setup_form.jpg)
 
@@ -84,7 +86,13 @@ Press **Save**, and the dongle will:
 3. After the password is verified and the AppKey is provisioned, the dongle is fully paired and ready for normal use.
    Note: if the dongle disconnects after provisioning, that is due to a bug I have not yet managed to track down. You can fix this by re-opening the app, than manually toggle the dongle connection from settings. This only seems to be happening on the initial connection.  
 
+#### ⚠️ Note: if it fails to pair and/or you do not get the popup to provision the dongle with the password, just toggle the on/off button in the settings (allow a few seconds in between off and on again) until you either get the pairing again or the provisioning password again. Closing the app and opening it again might also help, and/or unplug/plug the dongle in to reboot it. I tried my best to get this to work as best as I could in the time I had, but BLE could be temperamental so more work might be needed here to get it to work smoothly. I will appreacite feedback on this in the issues section.
+
 ---
+### 🔄 Update **v1.2.3** 
+- Fixes for several connectivity bugs
+- Adds support for allowing the dongle to accept multiple apps or devices, depending on the user's choice during the initial setup.
+
 ### 🔄 Update **v1.2.2** 
 - Fast Keys Support - The dongle now implements the new fast-key HID command mode.
 - The release package also includes the BluKeyborg Android companion app for general text sending and testing.
