@@ -974,7 +974,7 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		if (rc == 0) {
 			DPRINT("[SRV] sec_state: bonded=%d enc=%d auth=%d key_size=%d\n",
 				   (int)d.sec_state.bonded,
-				   (int)d.sec_state.encrypted,      // <-- here
+				   (int)d.sec_state.encrypted,      
 				   (int)d.sec_state.authenticated,
 				   (int)d.sec_state.key_size);
 		} else {
