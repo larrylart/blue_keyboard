@@ -1,5 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string-array name="volume_action_entries">
+        <item>None</item>
+        <item>Move Right</item>
+        <item>Move Left</item>
+        <item>Move Up</item>
+        <item>Move Down</item>
+        <item>Page Up</item>
+        <item>Page Down</item>
+        <item>Enter</item>
+        <item>Play</item>
+        <item>Stop</item>
+    </string-array>
+    <string-array name="volume_action_values">
+        <item>none</item>
+        <item>move_right</item>
+        <item>move_left</item>
+        <item>move_up</item>
+        <item>move_down</item>
+        <item>page_up</item>
+        <item>page_down</item>
+        <item>enter</item>
+        <item>play</item>
+        <item>stop</item>
+    </string-array>
     <color name="blue_700">#1976D2</color>
     <color name="ic_launcher_background">#1F4E78</color>
     <color name="purple_500">#6200EE</color>
@@ -50,6 +74,10 @@
     <string name="pref_device_type_key">pref_device_type</string>
     <string name="pref_keyboard_layout_key">pref_keyboard_layout</string>
     <string name="pref_send_newline">Send new line</string>
+    <string name="pref_volume_down_action_key">pref_volume_down_action</string>
+    <string name="pref_volume_down_action_title">Volume Down action</string>
+    <string name="pref_volume_up_action_key">pref_volume_up_action</string>
+    <string name="pref_volume_up_action_title">Volume Up action</string>
     <string name="settings_output_device_key">settings_output_device_key</string>
     <string name="title_output_device">Output Device</string>
     <string name="title_settings">Settings</string>

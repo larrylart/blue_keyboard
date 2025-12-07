@@ -542,9 +542,12 @@ object BleHub
         onDone: ((Boolean, String?) -> Unit)?
     ) {
         fun attempt(left: Int) {
+			logd("CONNECT: attempt left=$left to $address (connectTimeoutMs=$connectTimeoutMs)")
             ensureMgr().connect(address, connectTimeoutMs) { ok, err ->
+				logd("CONNECT: connect() callback for $address ok=$ok err=$err")
                 if (!ok) {
                     if (left > 0) {
+						logd("CONNECT: transport failed, retrying (left=${left - 1}) err=$err")
                         attempt(left - 1)
                     } else {
                         // Transport failed after retries
@@ -557,6 +560,7 @@ object BleHub
                     return@connect
                 }
 
+				logd("CONNECT: GATT OK for $address, enabling notifications…")
                 ensureNotificationsEnabled(address) { _, _ ->
 
                     val hasAppKey = BleAppSec.getKey(appCtx, address) != null
@@ -581,14 +585,37 @@ object BleHub
                                         return@doBinaryHandshakeFromB0
                                     }
 
-                                    // Existing policy: APPKEY missing → advise pairing reset (autoconnect path)
-                                    if (errH == "APPKEY missing" && !suppressAutoDisable) {
-                                        disableAutoConnect("Device requires pairing reset (APPKEY missing).")
-                                        onDone?.invoke(false, errH)
-                                        return@doBinaryHandshakeFromB0
-                                    }
+									// 1) Device has APPKEY, this app instance does not => "APPKEY missing".
+									//    - From Settings (allowPrompt=true): run GET_APPKEY flow + reconnect.
+									//    - From auto-connect: keep old behaviour (may disable autoconnect).
+									if (errH == "APPKEY missing") {
+										if (allowPrompt) {
+											logd("CONNECT: APPKEY missing – provisioning from Settings…")
 
-                                    // wrong APPKEY (BADMAC) – only auto-recover when prompted flow is allowed
+											// Ask password, GET_APPKEY, store in BleAppSec
+											requestAndStoreAppKeyWithPrompt(address, forcePrompt = true) { okKey, errKey ->
+												if (!okKey) {
+													onDone?.invoke(false, errKey ?: "APPKEY provisioning failed")
+													return@requestAndStoreAppKeyWithPrompt
+												}
+
+												// After provisioning, reconnect and redo B0/B1/B2
+												reconnectExpectingB0AndHandshake { okH2, errH2 ->
+													_connected.postValue(okH2)
+													onDone?.invoke(okH2, errH2)
+												}
+											}
+										} else if (!suppressAutoDisable) {
+											// Startup/autoconnect path: keep your old policy
+											disableAutoConnect("Device requires pairing reset (APPKEY missing).")
+											onDone?.invoke(false, errH)
+										} else {
+											onDone?.invoke(false, errH)
+										}
+										return@doBinaryHandshakeFromB0
+									}
+
+                                    // 2) wrong APPKEY (BADMAC) – only auto-recover when prompted flow is allowed
                                     if (allowPrompt && errH?.contains("BADMAC") == true) {
                                         logd("CONNECT: handshake BADMAC – clearing cached APPKEY and re-provisioning…")
                                         BleAppSec.clearKey(appCtx, address)
@@ -1110,11 +1137,24 @@ object BleHub
 						val maybeKey = tryUnwrapA1Maybe(verif_raw, chal, payload)
 						if (maybeKey != null && maybeKey.size == 32) {
 							BleAppSec.putKey(appCtx, address, maybeKey)
+							
+							// DEBUG: verify we can read it back immediately
+							//val roundtrip = BleAppSec.getKey(appCtx, address)
+							//Log.d("BleHub", "APPKEY roundtrip after put: len=${roundtrip?.size ?: -1}")
+							
 							java.util.Arrays.fill(passChars, '\u0000')
 							onDone(true, null)
 							return@sendProof
 						}
 						// continue to normalized retry
+					}
+
+					// DEBUG: if firmware explicitly sent an error (0xFF), surface it instead of blindly retrying
+					if (f2 != null && f2.op == 0xFF) {
+						val errMsg = mapAppKeyErrorFromDevice(f2.payload)
+						java.util.Arrays.fill(passChars, '\u0000')
+						onDone(false, errMsg)
+						return@sendProof
 					}
 
 					// RAW rejected or unwrap failed — retry with normalized/trimmed
@@ -1153,9 +1193,15 @@ object BleHub
 
 							sendProof(macR) { okNorm, f3 ->
 								if (!okNorm || f3 == null || f3.op != 0xA1) {
-									// Both RAW and normalized proofs failed
-									java.util.Arrays.fill(passChars, '\u0000')
-									onDone(false, "Proof rejected")
+									// if we got an error frame here, surface its message
+									if (f3 != null && f3.op == 0xFF) {
+										val errMsg = mapAppKeyErrorFromDevice(f3.payload)
+										java.util.Arrays.fill(passChars, '\u0000')
+										onDone(false, errMsg)
+									} else {
+										java.util.Arrays.fill(passChars, '\u0000')
+										onDone(false, "Proof rejected")
+									}
 									return@sendProof
 								}
 

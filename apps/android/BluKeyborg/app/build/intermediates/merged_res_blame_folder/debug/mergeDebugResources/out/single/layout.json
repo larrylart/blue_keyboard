@@ -1,31 +1,27 @@
 [
     {
-        "merged": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-mergeDebugResources-40:\\layout\\pref_output_device_row.xml",
-        "source": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-main-43:\\layout\\pref_output_device_row.xml"
+        "merged": "com.blu.blukeyborg.app-mergeDebugResources-40:/layout/pref_output_device_row.xml",
+        "source": "com.blu.blukeyborg.app-main-43:/layout/pref_output_device_row.xml"
     },
     {
-        "merged": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-mergeDebugResources-40:\\layout\\activity_main.xml",
-        "source": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-main-43:\\layout\\activity_main.xml"
+        "merged": "com.blu.blukeyborg.app-mergeDebugResources-40:/layout/pref_row_dropdown.xml",
+        "source": "com.blu.blukeyborg.app-main-43:/layout/pref_row_dropdown.xml"
     },
     {
-        "merged": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-mergeDebugResources-40:\\layout\\activity_output_device_settings.xml",
-        "source": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-main-43:\\layout\\activity_output_device_settings.xml"
+        "merged": "com.blu.blukeyborg.app-mergeDebugResources-40:/layout/pref_row_dropdown_flat.xml",
+        "source": "com.blu.blukeyborg.app-main-43:/layout/pref_row_dropdown_flat.xml"
     },
     {
-        "merged": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-mergeDebugResources-40:\\layout\\pref_send_newline_row.xml",
-        "source": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-main-43:\\layout\\pref_send_newline_row.xml"
+        "merged": "com.blu.blukeyborg.app-mergeDebugResources-40:/layout/activity_output_device_settings.xml",
+        "source": "com.blu.blukeyborg.app-main-43:/layout/activity_output_device_settings.xml"
     },
     {
-        "merged": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-mergeDebugResources-40:\\layout\\pref_row_dropdown_flat.xml",
-        "source": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-main-43:\\layout\\pref_row_dropdown_flat.xml"
+        "merged": "com.blu.blukeyborg.app-mergeDebugResources-40:/layout/pref_row_button_start.xml",
+        "source": "com.blu.blukeyborg.app-main-43:/layout/pref_row_button_start.xml"
     },
     {
-        "merged": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-mergeDebugResources-40:\\layout\\pref_row_button_start.xml",
-        "source": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-main-43:\\layout\\pref_row_button_start.xml"
-    },
-    {
-        "merged": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-mergeDebugResources-40:\\layout\\pref_row_dropdown.xml",
-        "source": "C:\\Users\\Larry\\.gradle\\daemon\\9.0-milestone-1\\com.blu.blukeyborg.app-main-43:\\layout\\pref_row_dropdown.xml"
+        "merged": "com.blu.blukeyborg.app-mergeDebugResources-40:/layout/pref_send_newline_row.xml",
+        "source": "com.blu.blukeyborg.app-main-43:/layout/pref_send_newline_row.xml"
     },
     {
         "merged": "com.blu.blukeyborg.app-mergeDebugResources-40:/layout/activity_main.xml",

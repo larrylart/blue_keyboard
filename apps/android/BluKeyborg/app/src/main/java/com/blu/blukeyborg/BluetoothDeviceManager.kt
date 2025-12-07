@@ -29,6 +29,8 @@ import androidx.annotation.RequiresPermission
 import androidx.lifecycle.MutableLiveData
 import android.bluetooth.BluetoothStatusCodes
 import com.blu.blukeyborg.PreferencesUtil
+import android.util.Log
+import com.blu.blukeyborg.BuildConfig
 
 // Lightweight summary used in the device picker and auto-connect logic.
 // "bonded" is purely informational here. pairing is controlled separately.
@@ -41,6 +43,18 @@ data class BtDevice(val name: String, val address: String, val bonded: Boolean)
 ////////////////////////////////////////////////////////////////////
 class BluetoothDeviceManager(private val context: Context)
 {
+    private val LOG_ENABLED = BuildConfig.DEBUG
+    private val TAG = "BtMgr"
+
+    private fun logd(msg: String) {
+        if (LOG_ENABLED) Log.d(TAG, msg)
+    }
+
+    private fun loge(msg: String, t: Throwable? = null) {
+        if (!LOG_ENABLED) return
+        if (t != null) Log.e(TAG, msg, t) else Log.e(TAG, msg)
+    }	
+	
 	// Main-thread handler used to:
 	//  - post LiveData updates
 	//  - schedule scan timeouts and write timeouts
@@ -484,9 +498,15 @@ class BluetoothDeviceManager(private val context: Context)
 		connectTimeoutMs: Long? = null,
 		onResult: (Boolean, String?) -> Unit
 	) {
-		stop() // pause scanning
-		val dev = try { adapter?.getRemoteDevice(address) } catch (_: IllegalArgumentException) { null }
-		if (dev == null) { onResult(false, "Invalid device address"); return }
+        logd("connect() requested for $address, timeoutMs=$connectTimeoutMs")
+        stop() // pause scanning
+        val dev = try { adapter?.getRemoteDevice(address) } catch (_: IllegalArgumentException) { null }
+        if (dev == null) {
+            loge("connect() failed: invalid device address $address")
+            onResult(false, "Invalid device address")
+            return
+        }		
+		
 		resultCb = onResult
 		closeAfterOp = false
 		connectedAddress = address
@@ -503,8 +523,37 @@ class BluetoothDeviceManager(private val context: Context)
 				// Do NOT teardown after this - we keep a live GATT for the app session
 				try { gatt?.disconnect() } catch (_: Throwable) {}
 				try { gatt?.close() } catch (_: Throwable) {}
-				gatt = dev.connectGatt(context, /*autoConnect*/ false, persistentGattCb)
+				
+				// change to fix broken new phones connect
+				//gatt = dev.connectGatt(context, /*autoConnect*/ false, persistentGattCb)
+                logd("connectGatt() starting for $address (BLE, autoConnect=false)")
+                gatt = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                    try {
+                        dev.connectGatt(
+                            context,
+                            /* autoConnect = */ false,
+                            persistentGattCb,
+                            android.bluetooth.BluetoothDevice.TRANSPORT_LE
+                        )
+                    } catch (t: Throwable) {
+                        loge("Exception during connectGatt (M+)", t)
+                        fail("Exception during connect: ${t.message}")
+                        return@post
+                    }
+                } else {
+                    try {
+                        dev.connectGatt(context, /*autoConnect*/ false, persistentGattCb)
+                    } catch (t: Throwable) {
+                        loge("Exception during connectGatt (pre-M)", t)
+                        fail("Exception during connect: ${t.message}")
+                        return@post
+                    }
+                }
+                logd("connectGatt() call returned for $address (gatt=$gatt)")
+			
+				
 			} catch (t: Throwable) {
+				loge("Exception wrapping connect()", t)
 				fail("Exception during connect: ${t.message}")
 			}
 		}
@@ -527,6 +576,8 @@ class BluetoothDeviceManager(private val context: Context)
 	{
 		override fun onConnectionStateChange(g: android.bluetooth.BluetoothGatt, status: Int, newState: Int) {
 			
+			logd("onConnectionStateChange: status=$status newState=$newState for ${g.device.address}")
+			
 			// Connected: request high priority and a larger MTU before service discovery
 			if (status == android.bluetooth.BluetoothGatt.GATT_SUCCESS &&
 				newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
@@ -534,13 +585,19 @@ class BluetoothDeviceManager(private val context: Context)
 				// Prefer faster link for the initial handshake
 				if (android.os.Build.VERSION.SDK_INT >= 21) {
 					try {
+						logd("requestConnectionPriority(CONNECTION_PRIORITY_HIGH)")
 						g.requestConnectionPriority(android.bluetooth.BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-					} catch (_: Throwable) {}
+					} catch (_: Throwable) {
+						
+						logd("requestConnectionPriority failed")
+					}
 				}
 
+				/* seems to fail on newq phones? 
 				// Request a larger MTU so the dongle can send the whole line in one notify
 				if (android.os.Build.VERSION.SDK_INT >= 21) {
-					val ok = try { g.requestMtu(247) } catch (_: Throwable) { false }
+					//val ok = try { g.requestMtu(247) } catch (_: Throwable) { false }
+					val ok = try { g.requestMtu(130) } catch (_: Throwable) { false }
 					if (!ok) {
 						// If request failed, proceed anyway
 						g.discoverServices()
@@ -548,15 +605,40 @@ class BluetoothDeviceManager(private val context: Context)
 				} else {
 					g.discoverServices()
 				}
+				*/
+				
+				// Optional MTU hint – see next section
+				val wantMtu = 247 // or 185/247 if your testing says it's stable
+				if (android.os.Build.VERSION.SDK_INT >= 21) {
+					try {
+						logd("requestMtu($wantMtu)")
+						g.requestMtu(wantMtu)
+					} catch (t: Throwable) {
+						logd("requestMtu($wantMtu) threw: ${t.message}")
+						// We'll still discover services below
+					}
+				}
+
+				// Always discover services, independent of MTU
+				try {
+					logd("discoverServices() after successful connect")
+					g.discoverServices()
+				} catch (t: Throwable) {
+					loge("discoverServices() failed", t)
+					fail("Service discovery start failed: ${t.message}")
+				}				
+				
 				
 			// Any other transition (disconnect / error) is treated as a failure
             // for the current operation. The app can decide whether to retry.
 			} else {
+				loge("Connection change treated as failure: status=$status newState=$newState")
 				fail("Connection state=$newState status=$status")
 			}
 		}
 
         override fun onServicesDiscovered(g: android.bluetooth.BluetoothGatt, status: Int) {
+			logd("onServicesDiscovered: status=$status for ${g.device.address}")
             if (status == android.bluetooth.BluetoothGatt.GATT_SUCCESS) {
 				// Service discovery succeeded – mark as ready
 				discovered = true  
@@ -566,32 +648,40 @@ class BluetoothDeviceManager(private val context: Context)
                 val svc = g.getService(BleHub.SERVICE_UUID)
                 lastCharacteristic = svc?.getCharacteristic(BleHub.CHAR_UUID) // TX (write)
                 notifyCharacteristic = svc?.getCharacteristic(BleHub.RX_UUID) // RX (notify)
-
+				logd("NUS service=${svc != null} tx=${lastCharacteristic != null} rx=${notifyCharacteristic != null}")
+				
                 if (notifyCharacteristic != null) {
                     // Enable notifications on RX
                     g.setCharacteristicNotification(notifyCharacteristic, true)
+					logd("setCharacteristicNotification(true) for RX characteristic")
+					
                     val cccd = notifyCharacteristic!!.getDescriptor(
                         java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
                     )
                     if (cccd != null) {
                         cccd.value = android.bluetooth.BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                         // Write descriptor - completion handled in onDescriptorWrite
+						logd("Writing CCCD descriptor for notifications")
                         if (!g.writeDescriptor(cccd)) {
                             // Could not write CCCD - still try to continue
+							logd("Could not write CCCD - still try to continue")
                             notificationsEnabled = false
                             succeed()
                         }
                     } else {
                         // No CCCD available - continue anyway
+						logd("No CCCD descriptor found, continuing without notifications")
                         notificationsEnabled = false
                         succeed()
                     }
                 } else {
                     // No RX, but we can still write-only
+					logd("No RX characteristic found; write-only connection")
                     notificationsEnabled = false
                     succeed()
                 }
             } else {
+				loge("Service discovery failed status=$status")
                 fail("Service discovery failed status=$status")
             }
         }
@@ -601,11 +691,16 @@ class BluetoothDeviceManager(private val context: Context)
             descriptor: android.bluetooth.BluetoothGattDescriptor,
             status: Int
         ) {
+			logd("onDescriptorWrite: uuid=${descriptor.uuid} status=$status for ${g.device.address}")
+			
             // We don't fail the connect on CCCD errors – we just track whether
             // notifications are actually enabled and complete the connect().			
             if (status == android.bluetooth.BluetoothGatt.GATT_SUCCESS &&
                 descriptor.characteristic == notifyCharacteristic) {
                 notificationsEnabled = true
+				 logd("Notifications enabled on RX characteristic")
+            } else {
+                logd("CCCD write did not succeed or not RX; notificationsEnabled=$notificationsEnabled")
             }
             // Signal connect() completion (do not close)
             succeed()
@@ -615,6 +710,8 @@ class BluetoothDeviceManager(private val context: Context)
 			g: android.bluetooth.BluetoothGatt,
 			characteristic: android.bluetooth.BluetoothGattCharacteristic
 		) {
+			logd("onCharacteristicChanged from ${g.device.address}, len=${characteristic.value?.size ?: -1}")
+			
             // Incoming notification from RX characteristic:
             //
             // 1) If a streaming listener is active -> deliver there and return.
@@ -647,6 +744,8 @@ class BluetoothDeviceManager(private val context: Context)
 			mtu: Int,
 			status: Int
 		) {
+			logd("onMtuChanged: mtu=$mtu status=$status for ${g.device.address}")
+			
             // Record negotiated MTU and continue with service discovery.
             // We ignore status here and always try to discover services.			
 			currentMtu = mtu
@@ -659,6 +758,8 @@ class BluetoothDeviceManager(private val context: Context)
 			characteristic: android.bluetooth.BluetoothGattCharacteristic,
 			status: Int
 		) {
+			logd("onCharacteristicWrite: status=$status len=${characteristic.value?.size ?: -1} for ${g.device.address}")
+			
             // Write completed (with or without response).
             // Clear the write timeout and signal success/failure for
             // the current operation.			
@@ -699,6 +800,8 @@ class BluetoothDeviceManager(private val context: Context)
 		writeType: Int = android.bluetooth.BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
 		onResult: (Boolean, String?) -> Unit
 	) {
+		logd("writeOrConnect() address=$address len=${payload.size} svc=$serviceUuid char=$characteristicUuid")
+		
 		//resultCb = onResult
 		closeAfterOp = false // do not close after write — persistent mode
 
@@ -718,6 +821,7 @@ class BluetoothDeviceManager(private val context: Context)
 			val service = g.getService(serviceUuid)
 			val ch = service?.getCharacteristic(characteristicUuid)
 			if (ch == null) {
+				loge("writeOrConnect: characteristic not found on $address")
 				fail("Characteristic not found")
 				return
 			}
@@ -738,6 +842,8 @@ class BluetoothDeviceManager(private val context: Context)
 			}
 			val isNoResponse =
 				(resolvedWriteType == android.bluetooth.BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+				
+			logd("writeOrConnect: props=$props resolvedWriteType=$resolvedWriteType isNoResp=$isNoResponse")
 
             // API 33+ has the newer writeCharacteristic() API that returns
             // a BluetoothStatusCodes result; older APIs use the legacy
@@ -745,6 +851,7 @@ class BluetoothDeviceManager(private val context: Context)
 			if (android.os.Build.VERSION.SDK_INT >= 33) 
 			{
 				val rc = g.writeCharacteristic(ch, payload, resolvedWriteType)
+				logd("writeCharacteristic(33+) rc=$rc")
 				if (rc != android.bluetooth.BluetoothStatusCodes.SUCCESS) {
 					fail("writeCharacteristic rc=$rc")
 					return
@@ -779,8 +886,10 @@ class BluetoothDeviceManager(private val context: Context)
         // otherwise, connect first and then perform the write.
 		if (gatt != null && connectedAddress == address && discovered) {
 		//if (gatt != null && connectedAddress == address) {
+			logd("writeOrConnect: reusing existing GATT to $address (mtu=$currentMtu)")
 			doWrite.invoke()
 		} else {
+			logd("writeOrConnect: need to (re)connect to $address")
 			connect(address) { ok, err ->
 				if (!ok) onResult(false, err) else doWrite.invoke()
 			}

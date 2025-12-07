@@ -659,11 +659,22 @@ static void flushHelloIfDue()
 ////////////////////////////////////////////////////////////////////
 static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ ) 
 {
+	DPRINT("[GAP] event type=%d\n", (int)event->type);
+	
 	// intercept by event type 
 	switch( event->type ) 
 	{
 		case BLE_GAP_EVENT_CONNECT:
 		{
+			// used for debug purposes
+            ble_gap_conn_desc d{};
+            int rc = ble_gap_conn_find(event->connect.conn_handle, &d);
+
+            DPRINT("[GAP] CONNECT: status=%d conn_handle=%u rc=%d\n",
+                   event->connect.status,
+                   event->connect.conn_handle,
+                   rc);
+			
 			// If device is locked (pairing closed) and central is NOT bonded, disconnect immediately.
 			/* - do not do this on connect! to clean//ble_gap_conn_desc d{};
 			if (ble_gap_conn_find(event->connect.conn_handle, &d) == 0) 
@@ -688,6 +699,10 @@ static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ )
 		
 		case BLE_GAP_EVENT_ENC_CHANGE: 
 		{
+            DPRINT("[GAP] ENC_CHANGE: status=%d conn_handle=%u\n",
+                   event->enc_change.status,
+                   event->enc_change.conn_handle);
+				   
 			g_encReady = (event->enc_change.status == 0);
 			g_linkEncrypted = (event->enc_change.status == 0);
 
@@ -724,6 +739,10 @@ static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ )
 
 		case BLE_GAP_EVENT_DISCONNECT:
 		{
+            DPRINT("[GAP] DISCONNECT: reason=%d conn_handle=%u\n",
+                   event->disconnect.reason,
+                   event->disconnect.conn.conn_handle);
+				   
 			auto* adv = NimBLEDevice::getAdvertising();
 			adv->setScanFilter(false /*scan-any*/, getAllowPairing() ? false : true /*connect-whitelist-only*/);
 			adv->start();
@@ -791,9 +810,9 @@ public:
 		const bool indicateOn = (subValue & 0x0002);
 		g_isSubscribed = (notifyOn || indicateOn);
 
-		//DPRINT("SUBSCRIBE: conn=%u attr=%u sub=0x%04x (notify=%d,indicate=%d) UUID=%s\n",
-		//              info.getConnHandle(), c->getHandle(), subValue, notifyOn, indicateOn,
-		//              c->getUUID().toString().c_str());
+		DPRINT("SUBSCRIBE: conn=%u attr=%u sub=0x%04x (notify=%d,indicate=%d) UUID=%s\n",
+		              info.getConnHandle(), c->getHandle(), subValue, notifyOn, indicateOn,
+		              c->getUUID().toString().c_str());
 
 		if( g_isSubscribed ) 
 		{
@@ -835,7 +854,7 @@ class ServerCallbacks : public NimBLEServerCallbacks
 	// IDF 5.x / Arduino-ESP32 3.x styl
 	void onConnect(NimBLEServer* server, NimBLEConnInfo& info) override 
 	{
-		//DPRINT("ServerCallbacks::onConnect connHandle addr\n");
+		DPRINT("ServerCallbacks::onConnect connHandle addr\n");
 
 		g_isSubscribed = false;
 
@@ -869,13 +888,14 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		g_pinAllowedThisConn = false;
 
 		// Request 30–50 ms interval, 0 latency, 4 s supervision timeout
+		/* disable to see if this works with new phones ? YES! avoid this setting on new phone. proved to cause problems
 		server->updateConnParams(
 			info.getConnHandle(),
 			24,   // min interval  = 24 * 1.25 ms = 30 ms
 			40,   // max interval  = 40 * 1.25 ms = 50 ms
 			0,    // latency       = 0
 			400   // timeout       = 400 * 10 ms  = 4000 ms
-		);
+		);*/
 
 		NimBLEDevice::startSecurity(info.getConnHandle());
 
@@ -913,7 +933,7 @@ class ServerCallbacks : public NimBLEServerCallbacks
 
 	void onDisconnect(NimBLEServer* server, NimBLEConnInfo& info, int reason) override 
 	{
-		//DPRINT("ServerCallbacks::onDisconnect reason=%d\n", reason);
+		DPRINT("ServerCallbacks::onDisconnect reason=%d\n", reason);
 
 		// reset all flags to false - todo: check if more need to reset
 		g_isSubscribed = false;	  
@@ -938,11 +958,29 @@ class ServerCallbacks : public NimBLEServerCallbacks
 
 	void onAuthenticationComplete(NimBLEConnInfo& info) override 
 	{
-		//DPRINT("ServerCallbacks::onAuthenticationComplete enc=%d auth=%d\n", g_linkEncrypted ? 1:0, g_linkAuthenticated ? 1:0);	  
+		DPRINT("ServerCallbacks::onAuthenticationComplete enc=%d auth=%d\n", g_linkEncrypted ? 1:0, g_linkAuthenticated ? 1:0);	  
 		  
 		// Some NimBLE builds report auth status via ConnInfo
 		g_linkEncrypted     = info.isEncrypted();
 		g_linkAuthenticated = info.isAuthenticated();
+
+		bool enc  = info.isEncrypted();
+		bool auth = info.isAuthenticated();		
+		DPRINT("[SRV] onAuthenticationComplete enc=%d auth=%d\n", (int)enc, (int)auth);
+		
+		// debug
+		ble_gap_conn_desc d{};
+		int rc = ble_gap_conn_find(info.getConnHandle(), &d);
+		if (rc == 0) {
+			DPRINT("[SRV] sec_state: bonded=%d enc=%d auth=%d key_size=%d\n",
+				   (int)d.sec_state.bonded,
+				   (int)d.sec_state.encrypted,      // <-- here
+				   (int)d.sec_state.authenticated,
+				   (int)d.sec_state.key_size);
+		} else {
+			DPRINT("[SRV] sec_state: ble_gap_conn_find rc=%d\n", rc);
+		}
+	
 		if( g_linkEncrypted && g_linkAuthenticated ) 
 		{
 			// Mark link as fully ready before the PIN timeout in loop()
@@ -1162,6 +1200,29 @@ void setup()
 	// load prefs from persisten storage
 	initSettings();
 
+	/* extr debug if needed
+    // DEBUG: dump pairing policy + bonds at boot
+    {
+        bool allowPair = getAllowPairing();
+        bool allowMultiDev = getAllowMultiDevicePairing();
+        bool allowMultiApp = getAllowMultiAppProvisioning(); // if you have this accessor
+
+        ble_addr_t addrs[8];
+        int capacity = (int)(sizeof(addrs) / sizeof(addrs[0]));
+        int count = capacity;
+        int rc = ble_store_util_bonded_peers(addrs, &count, capacity);
+
+        DPRINT("[BOOT][BLE] allowPair=%d allowMultiDev=%d allowMultiApp=%d rc=%d bonds=%d\n",
+               (int)allowPair, (int)allowMultiDev, (int)allowMultiApp, rc, count);
+
+        for (int i = 0; i < count; ++i) {
+            ble_addr_t &a = addrs[i];
+            DPRINT("[BOOT][BLE] bond[%d] type=%d addr=%02X:%02X:%02X:%02X:%02X:%02X\n", i, a.type,
+                   a.val[5], a.val[4], a.val[3], a.val[2], a.val[1], a.val[0]);
+        }
+    }
+	*/
+
 	// set BLE name - also used in setup for default
 	//initBleNameGlobal();
 
@@ -1206,7 +1267,8 @@ void setup()
 	NimBLEDevice::setDeviceName( g_BleName.c_str() );
 	
 	NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-	NimBLEDevice::setMTU(247);
+	// disable to try to make it work with new phones - or keep it as a hint
+	//NimBLEDevice::setMTU(247);
 
 	// Register the GAP handler *right after* init and before advertising
 	if( !NimBLEDevice::setCustomGapHandler(bleGapEvent) ) 
