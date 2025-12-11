@@ -23,6 +23,9 @@ class RemoteControlActivity : AppCompatActivity() {
     // boolean, but BleHub.enableFastKeys is idempotent at the dongle side.
     private var fastKeysEnabled: Boolean = false
 
+    // keep a reference so we can update text dynamically
+    private lateinit var bodyText: TextView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -69,9 +72,7 @@ class RemoteControlActivity : AppCompatActivity() {
         topBar.addView(closeButton)
 
         // --- Body text / instructions ---
-        val bodyText = TextView(this).apply {
-            text = "\nVolume Up  → mapped from Settings\n" +
-                    "Volume Down → mapped from Settings\n\n"
+        bodyText = TextView(this).apply {
             textSize = 16f
             setTextColor(0xFFFFFFFF.toInt())
             setPadding(0, 32, 0, 0)
@@ -79,6 +80,9 @@ class RemoteControlActivity : AppCompatActivity() {
 
         card.addView(topBar)
         card.addView(bodyText)
+
+        // After bodyText is created, set the initial mapping text
+        updateBodyText()
 
         val cardParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -149,6 +153,11 @@ class RemoteControlActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateBodyText()
+    }
+
 /*
     private fun enableFullscreenImmersive() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -173,6 +182,13 @@ class RemoteControlActivity : AppCompatActivity() {
 		controller.hide(WindowInsetsCompat.Type.navigationBars())
 	}
 
+    private fun updateBodyText() {
+        val upLabel = VolumeKeyActions.getActionDisplayLabel(this, isVolumeUp = true)
+        val downLabel = VolumeKeyActions.getActionDisplayLabel(this, isVolumeUp = false)
+
+        bodyText.text = "\nVolume Up  → $upLabel\n" +
+                        "Volume Down → $downLabel\n\n"
+    }
 
     private fun handleVolumeKeyPress(isVolumeUp: Boolean) {
         if (fastKeysEnabled) {

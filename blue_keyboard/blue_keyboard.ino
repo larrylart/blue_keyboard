@@ -25,6 +25,7 @@
 #include <FastLED.h>
 #include "USB.h"
 #include "USBHIDKeyboard.h"
+#include "USBHIDConsumerControl.h"
 #include "pin_config.h"
 #include "TFT_eSPI.h" 
 #include <Preferences.h>     // NVS key/value
@@ -92,6 +93,9 @@ TFT_eSPI tft = TFT_eSPI();
 
 // USB HID keyboard 
 RawKeyboard Keyboard;
+
+// Consumer Control device used by RawKeyboard::sendConsumerUsage
+USBHIDConsumerControl MediaControl;
 
 NimBLECharacteristic* pWriteChar = nullptr;
 static NimBLECharacteristic* g_txChar = nullptr;
@@ -1257,6 +1261,8 @@ void setup()
 	USB.begin();
 	delay(200);
 	Keyboard.begin();
+	MediaControl.begin();    // Consumer Control (media keys)
+	
 #endif
 	// just to clean up - comment after
 	//NimBLEDevice::deleteAllBonds();

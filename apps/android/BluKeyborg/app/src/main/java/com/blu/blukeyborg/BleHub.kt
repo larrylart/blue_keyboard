@@ -574,14 +574,18 @@ object BleHub
                                 doBinaryHandshakeFromB0(address, b0) { okH, errH ->
                                     _connected.postValue(okH)
 									
-									// used befor in single provisioning mode
+									// used before in single provisioning mode
                                     //if (!okH && errH == "APPKEY missing" && !suppressAutoDisable) {
                                     //    disableAutoConnect("Device requires pairing reset (APPKEY missing).")
                                     //}
                                     //onDone?.invoke(okH, errH)
 									
-                                    if (okH) {
-                                        onDone?.invoke(true, null)
+                                    if (okH) 
+									{
+                                        //onDone?.invoke(true, null)
+										// Secure session is up – refresh layout and then report success
+										onSecureSessionReady(address, onDone)										
+										
                                         return@doBinaryHandshakeFromB0
                                     }
 
@@ -1808,24 +1812,61 @@ object BleHub
 		val addr = PreferencesUtil.getOutputDeviceId(appCtx)
 		if (addr.isNullOrBlank()) { onDone(false, "No device"); return }
 
+		// Fully drop old GATT
 		ensureMgr().disconnect()
+
+		// Short back-off just to let the controller breathe
+		val backoffMs = 250L
+
 		mainHandler.postDelayed({
-			ensureMgr().connect(addr) { ok, err ->
+			ensureMgr().connect(addr, connectTimeoutMs = 3500L) { ok, err ->
 				if (!ok) { onDone(false, err); return@connect }
-				
-				ensureNotificationsEnabled(addr) { _, _ ->			
-						// After APPKEY set, firmware sends ONLY B0 on connect
-						waitForInfoBannerOrB0(totalTimeoutMs = 5000L) { plain, b0 ->
-							if (b0 == null) {
-								logd( "RECONNECT: expected B0, got ${if (plain!=null) "PLAINTEXT" else "nothing"}")
-								onDone(false, "No B0 after provisioning")
-							} else {
-								doBinaryHandshakeFromB0(addr, b0, onDone)
+
+				ensureNotificationsEnabled(addr) { _, _ ->
+					// After APPKEY set, firmware should send ONLY B0 on connect
+					waitForInfoBannerOrB0(totalTimeoutMs = 5000L) { plain, b0 ->
+						if (b0 == null) {
+							logd("RECONNECT: expected B0, got ${if (plain != null) "PLAINTEXT" else "nothing"}")
+							onDone(false, "No B0 after provisioning")
+						} else {
+							doBinaryHandshakeFromB0(addr, b0) { okH, errH ->
+								if (!okH) {
+									onDone(false, errH)
+								} else {
+									// We’ll add layout refresh in the next section
+									//onDone(true, null)
+									// Secure session after provisioning – refresh layout and notify caller
+									onSecureSessionReady(addr, onDone)									
+								}
 							}
 						}
+					}
 				}
 			}
-		}, 1000L)
+		}, backoffMs)
+	}
+
+	////////////////////////////////////////////////////////////////////
+	// Call once MTLS is established to refresh layout in prefs.
+	// Does not treat layout failure as a hard error.
+	////////////////////////////////////////////////////////////////////
+	private fun onSecureSessionReady(
+		addr: String,
+		upstream: ((Boolean, String?) -> Unit)?
+	) {
+		_connected.postValue(true)
+
+		// Optional: query layout over secure channel and cache it
+		getLayout(timeoutMs = 4000L) { okInfo, layout, errInfo ->
+			if (okInfo && layout != null) {
+				logd("CONNECT: secure GET_INFO -> layout=$layout")
+				PreferencesUtil.setKeyboardLayout(appCtx, layout)
+			} else {
+				logd("CONNECT: GET_INFO failed after handshake: ${errInfo ?: "unknown"}")
+			}
+
+			upstream?.invoke(true, null)
+		}
 	}
 
 	////////////////////////////////////////////////////////////////////
