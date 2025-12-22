@@ -58,6 +58,9 @@ extern bool g_rawFastMode;   // defined in blue_keyboard.ino
 // Sends a single buffer over BLE (internally chunks to ATT_MTU as needed).
 extern bool sendTX(const uint8_t* data, size_t len);
 
+// UI helper implemented in blue_keyboard.ino (blink + TFT)
+extern void showLockedNeedsReset();
+
 // Used by APPKEY onboarding to send the one-time wrapped AppKey
 // back to the Android app (implemented in mtls.cpp)
 extern bool sendWrappedAppKey(const uint8_t verif32[32], const uint8_t chal16[16]); // from mtls.cpp 
@@ -267,10 +270,15 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 	// :: GET_APPKEY (0xA0) — request KDF params + challenge
 	if( op == 0xA0 ) 
 	{ 
-		//if (isAppKeyMarkedSet())
-		if( isAppKeyMarkedSet() && !getAllowMultiAppProvisioning() )
+		// Strict single-app / single-device mode:
+		// If the AppKey was already provisioned AND both multi flags are disabled,
+		// reject further provisioning attempts and require factory reset.
+		bool allowMultiApp = getAllowMultiAppProvisioning();
+		bool allowMultiDev = getAllowMultiDevicePairing();
+
+		if( isAppKeyMarkedSet() && !allowMultiApp && !allowMultiDev )
 		{
-			const char* msg = "already set";
+			const char* msg = "LOCKED_SINGLE_NEED_RESET";
 			sendFrame(0xFF, (const uint8_t*)msg, (uint16_t)strlen(msg));
 			return( true );
 		}

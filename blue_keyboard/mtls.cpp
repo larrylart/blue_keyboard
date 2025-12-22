@@ -61,6 +61,13 @@ static std::vector<uint8_t> s_lastB0;     // cached B0 payload = [srvPub65|sid4]
 static uint32_t s_b0NextAtMs = 0;         // next scheduled retry time (millis)
 static uint8_t  s_b0Retries  = 0;         // how many B0 retries we've done
 
+// ------------------------------------------------------------
+// B2 delayed-send state (workaround for iOS notify timing)
+// ------------------------------------------------------------
+static bool     s_b2Pending   = false;
+static uint8_t  s_b2Mac[16]   = {0};
+static uint32_t s_b2SendAtMs  = 0;
+
 ////////////////////////////////////////////////////////////////////
 // Session state
 //
@@ -72,6 +79,10 @@ static uint8_t  s_b0Retries  = 0;         // how many B0 retries we've done
 ////////////////////////////////////////////////////////////////////
 static bool     s_active      = false;
 static uint8_t  s_sessKey[32] = {0};
+// Key separation (derived once per handshake from s_sessKey)
+static uint8_t  s_kEnc[32] = {0};
+static uint8_t  s_kMac[32] = {0};
+static uint8_t  s_kIv[32]  = {0};
 static uint16_t s_seqIn  = 0;
 static uint16_t s_seqOut = 0;
 static uint32_t s_sid    = 0;
@@ -85,8 +96,10 @@ static mbedtls_ecp_point s_pub;         // Q
 
 // Link security (provided by .ino)
 //extern bool g_linkEncrypted, g_linkAuthenticated;
-//bool isLinkSecure(){ return g_linkEncrypted && g_linkAuthenticated; } - no longer needed - to check if logic stands
+extern bool isLinkSecure();
+//bool isLinkSecure(){ return g_linkEncrypted && g_linkAuthenticated; } //- no longer needed - to check if logic stands
 
+//extern bool isLinkSecureForTraffic( uint16_t connHandle );
 extern bool sendTX(const uint8_t* data, size_t len);     // from .ino
 
 ////////////////////////////////////////////////////////////////////
@@ -173,6 +186,9 @@ void mtls_reset()
 	s_seqIn = s_seqOut = 0; 
 	s_sid = 0;
 	memset(s_sessKey, 0, sizeof(s_sessKey));
+	memset(s_kEnc,    0, sizeof(s_kEnc));
+	memset(s_kMac,    0, sizeof(s_kMac));
+	memset(s_kIv,     0, sizeof(s_kIv));
 }
 
 extern "C" void mtls_onDisconnect()
@@ -182,6 +198,52 @@ extern "C" void mtls_onDisconnect()
     s_lastB0.clear();
     s_b0Retries  = 0;
     s_b0NextAtMs = 0;
+	
+	// clean B2 flags
+	s_b2Pending  = false;
+	s_b2SendAtMs = 0;
+	memset(s_b2Mac, 0, sizeof(s_b2Mac));
+}
+
+////////////////////////////////////////////////////////////////////
+// Drop MTLS session and force a fresh handshake (B0).
+//
+// Use this when we detect protocol errors (REPLAY/BADMAC), or when
+// seq is about to wrap (CTR IV reuse risk), without needing a full BLE
+// disconnect.
+//
+// What it does:
+//  - wipes MTLS session keys/state
+//  - clears B0 retry cache/counters
+//  - clears any pending delayed B2
+//  - schedules B0 to be re-sent soon (via mtls_tick())
+//    (the app can then re-handshake immediately)
+////////////////////////////////////////////////////////////////////
+static void mtls_dropSessionAndRequireHandshake(const char* why)
+{
+    if (why) {
+        DPRINT("[MTLS] DROP+REHS: %s\n", why);
+    } else {
+        DPRINTLN("[MTLS] DROP+REHS");
+    }
+
+    // Wipe crypto/session state
+    mtls_reset();
+
+    // Clear handshake retry state
+    s_lastB0.clear();
+    s_b0Retries  = 0;
+    s_b0NextAtMs = 0;
+
+    // Clear delayed B2 state
+    s_b2Pending  = false;
+    s_b2SendAtMs = 0;
+    memset(s_b2Mac, 0, sizeof(s_b2Mac));
+
+    // Kick off a fresh HELLO soon (mtls_tick will send cached B0)
+    // NOTE: mtls_sendHello_B0 caches s_lastB0 and relies on mtls_tick to send.
+    // If link isn't ready, retries will handle it.
+    (void)mtls_sendHello_B0();
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -214,7 +276,8 @@ static void ensureGroupInit()
 //  - writes private to s_priv, public to s_pub
 //  - returns public key as 65-byte uncompressed hex string in pubHex (for debug)
 ////////////////////////////////////////////////////////////////////
-static bool genKeypair( String& pubHex )
+//static bool genKeypair( String& pubHex )
+static bool genKeypair()
 {
 	ensureGroupInit();
 	int rc = mbedtls_ecp_gen_keypair(&s_grp, &s_priv, &s_pub, esp_mbedtls_rng, nullptr);
@@ -310,6 +373,17 @@ static bool deriveSessionKey( const std::vector<uint8_t>& cliPub65 )
 	info.insert(info.end(), cliPub65.begin(), cliPub65.end());
 
 	hkdf_sha256(getAppKey(), 32, shared, 32, info.data(), info.size(), s_sessKey);
+
+
+    // Derive per-purpose keys from sessKey (domain separation)
+    // K_enc = HMAC(sessKey, "ENC")
+    // K_mac = HMAC(sessKey, "MAC")
+    // K_iv  = HMAC(sessKey, "IVK")
+	uint8_t tmp[32];
+	hmac(s_sessKey, 32, (const uint8_t*)"ENC", 3, tmp); memcpy(s_kEnc, tmp, 32);
+	hmac(s_sessKey, 32, (const uint8_t*)"MAC", 3, tmp); memcpy(s_kMac, tmp, 32);
+	hmac(s_sessKey, 32, (const uint8_t*)"IVK", 3, tmp); memcpy(s_kIv,  tmp, 32);
+	memset(tmp, 0, sizeof(tmp));
 	
 	return( true );
 }
@@ -324,6 +398,14 @@ static void mac16(const uint8_t* key, const uint8_t* msg, size_t n, uint8_t out1
 	memcpy(out16, full, 16);
 }
 
+// Constant-time compare for 16-byte tags
+static bool ct_eq16(const uint8_t a[16], const uint8_t b[16])
+{
+    uint8_t r = 0;
+    for (int i = 0; i < 16; ++i) r |= (uint8_t)(a[i] ^ b[i]);
+    return r == 0;
+}
+
 ////////////////////////////////////////////////////////////////////
 // Derive IV for AES-CTR:
 //
@@ -336,7 +418,7 @@ static void ivFrom(uint8_t dir, uint16_t seq, uint8_t iv16[16])
 	uint8_t buf[3+4+1+2]; // "IV"+sid+dir+seq
 	buf[0]='I'; 
 	buf[1]='V'; 
-	buf[2]=0;
+	buf[2]='1';
 	buf[3]=(uint8_t)(s_sid>>24); 
 	buf[4]=(uint8_t)(s_sid>>16);
 	buf[5]=(uint8_t)(s_sid>>8);  
@@ -344,7 +426,7 @@ static void ivFrom(uint8_t dir, uint16_t seq, uint8_t iv16[16])
 	buf[7]=dir; buf[8]=(uint8_t)(seq>>8); 
 	buf[9]=(uint8_t)(seq);
 	
-	uint8_t h[32]; hmac(s_sessKey, 32, buf, sizeof(buf), h);
+	uint8_t h[32]; hmac(s_kIv, 32, buf, sizeof(buf), h);
 	memcpy(iv16, h, 16);
 }
 
@@ -397,19 +479,25 @@ static bool get_srv_pub65(uint8_t out65[65])
 ////////////////////////////////////////////////////////////////////
 bool mtls_sendHello_B0()
 {
-	// Require appkey present (same as mtls_prepareHello)
-	if( !isAppKeyMarkedSet() ) 
+	// gated before sending B0 waiting for secure link to be established
+	// if (!isLinkSecure()) return false; // bad idea relaying on global ... 
+	
+	// NOTE: We always send B0, even if the AppKey has not been provisioned to any client yet.
+	// Clients without the key should/cannot respond and instead use A* command to provision the key 
+	// clients with worng key will fail B1 (BADMAC) and then should run A* provisioning.
+	if( !isAppKeyMarkedSet() )
 	{
-		DPRINTLN("[MTLS][B0] appKey not set"); 
-		return false; 
+		DPRINTLN("[MTLS][B0] unprovisioned (sending B0 anyway)");
 	}
+	
 	ensureGroupInit();
 	mtls_reset();
 
 	// sid + ephemeral
 	s_sid = esp_random();
-	String dummy; // for logs
-	if( !genKeypair(dummy) ) 
+	//String dummy; // for logs - removed this to tidy
+	//if( !genKeypair(dummy) ) 
+	if( !genKeypair() ) 
 	{
 		DPRINTLN("[MTLS][B0] genKeypair fail"); 
 		return false; 
@@ -421,16 +509,16 @@ bool mtls_sendHello_B0()
 		DPRINTLN("[MTLS][B0] write srv pub fail"); 
 		return false; 
 	}
-	// sid LE
-	pay[65] = (uint8_t)(s_sid & 0xFF);
-	pay[66] = (uint8_t)((s_sid >> 8) & 0xFF);
-	pay[67] = (uint8_t)((s_sid >> 16) & 0xFF);
-	pay[68] = (uint8_t)((s_sid >> 24) & 0xFF);
+	// sid BE
+	pay[65] = (uint8_t)((s_sid >> 24) & 0xFF);
+	pay[66] = (uint8_t)((s_sid >> 16) & 0xFF);
+	pay[67] = (uint8_t)((s_sid >> 8) & 0xFF);
+	pay[68] = (uint8_t)(s_sid & 0xFF);
 
 	// Cache for retransmit until B1 arrives
 	s_lastB0.assign(pay, pay + sizeof(pay));
 	s_b0Retries  = 0;
-	s_b0NextAtMs = millis() + 200;   // first retry after 300 ms - increased
+	s_b0NextAtMs = millis() + 1;   // first retry after 300 ms - increased
 
 	// top-level send via your binary framing (sendFrame in commands.h will pick MTLS path only after active)
 	// commented this out here so it will run on a ticker instead
@@ -453,11 +541,41 @@ bool mtls_sendHello_B0()
 ////////////////////////////////////////////////////////////////////
 void mtls_tick()
 {
-	// Stop if session is active or no cached B0 or we exhausted retries
-	if( mtls_isActive() || s_lastB0.empty() ) return;
+	if( mtls_isActive() ) return;		
 	
-	const uint32_t RETRY_GAP_MS = 450;
-	const uint8_t  RETRY_MAX    = 16;
+	// :: If we owe the client a delayed B2, send it now
+	if( s_b2Pending ) 
+	{
+		uint32_t now = millis();
+		if( now >= s_b2SendAtMs ) 
+		{
+			bool ok = sendFrame(0xB2, s_b2Mac, 16);
+			//if( ok ) 
+			//{
+				s_b2Pending = false;
+				s_b2SendAtMs = 0;
+
+				// Now MTLS is active
+				s_active = true;
+				s_seqIn = s_seqOut = 0;
+
+				DPRINTLN("[MTLS] ACTIVE (binary) (delayed B2)");
+				
+			//} else 
+			//{
+			//	// If notify send fails, try again shortly (but don't spam too hard)
+			//	s_b2SendAtMs = now + 80;
+			//}
+		}
+		// While B2 is pending, do not send B0 retries
+		return;
+	}		
+	
+	// Stop if session is active or no cached B0 or we exhausted retries
+	if( s_lastB0.empty() ) return;		
+	
+	const uint32_t RETRY_GAP_MS = 300;
+	const uint8_t  RETRY_MAX    = 6;
 	
 	// aprox 3s window at 300 ms pace
 	if( s_b0Retries >= RETRY_MAX ) 
@@ -469,9 +587,23 @@ void mtls_tick()
 	if( now >= s_b0NextAtMs ) 
 	{
 		DPRINT("[MTLS][B0] RETRY #%u\n", (unsigned)s_b0Retries + 1);
-		sendFrame(0xB0, s_lastB0.data(), (uint16_t)s_lastB0.size());
-		s_b0Retries++;
-		s_b0NextAtMs = now + RETRY_GAP_MS;
+		//sendFrame(0xB0, s_lastB0.data(), (uint16_t)s_lastB0.size());
+		//s_b0Retries++;
+		//s_b0NextAtMs = now + RETRY_GAP_MS;
+		// retry inc counter only if success??
+		bool ok = sendFrame(0xB0, s_lastB0.data(), (uint16_t)s_lastB0.size());
+		//if( ok ) 
+		//{
+			s_b0Retries++;
+			s_b0NextAtMs = now + RETRY_GAP_MS*s_b0Retries;
+			
+		//} else 
+		//{
+			// Link not ready (or notify failed) — do NOT consume a retry.
+			// Try again soon.
+		//	s_b0NextAtMs = now + 80;
+		//}
+		
 	}
 }
 
@@ -489,15 +621,15 @@ static void make_sfin_mac(uint8_t out16[16], const std::vector<uint8_t>& cli65)
 {
 	uint8_t srv65[65]; get_srv_pub65(srv65);
 	uint8_t sid4[4] = {
-			(uint8_t)(s_sid & 0xFF), (uint8_t)((s_sid>>8)&0xFF),
-			(uint8_t)((s_sid>>16)&0xFF), (uint8_t)((s_sid>>24)&0xFF)
+			(uint8_t)((s_sid >> 24) & 0xFF), (uint8_t)((s_sid >> 16) & 0xFF),
+			(uint8_t)((s_sid >> 8) & 0xFF),  (uint8_t)( s_sid        & 0xFF)
 		};
 	std::vector<uint8_t> fin; fin.reserve(4+4+65+65);
 	fin.insert(fin.end(), {'S','F','I','N'});
 	fin.insert(fin.end(), sid4, sid4+4);
 	fin.insert(fin.end(), srv65, srv65+65);
 	fin.insert(fin.end(), cli65.begin(), cli65.end());
-	mac16(s_sessKey, fin.data(), fin.size(), out16);
+	mac16(s_kMac, fin.data(), fin.size(), out16);
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -552,10 +684,10 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 			return true; 
 		}
 		uint8_t sid4[4] = {
-			(uint8_t)(s_sid&0xFF),
-			(uint8_t)((s_sid>>8)&0xFF),
-			(uint8_t)((s_sid>>16)&0xFF),
-			(uint8_t)((s_sid>>24)&0xFF) };
+			(uint8_t)((s_sid >> 24) & 0xFF),
+			(uint8_t)((s_sid >> 16) & 0xFF),
+			(uint8_t)((s_sid >> 8) & 0xFF),
+			(uint8_t)( s_sid        & 0xFF) };
 			
 		std::vector<uint8_t> msg; msg.reserve(4+4+65+65);
 		msg.insert(msg.end(), {'K','E','Y','X'});
@@ -573,7 +705,7 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 		//    DPRINTLN("");
 		// end of debug
 
-		if( memcmp(macExp, macIn, 16) != 0 ) 
+		if( !ct_eq16(macExp, macIn) ) 
 		{ 
 			DPRINTLN("[MTLS][B1] BADMAC"); 
 			const char* e="BADMAC"; 
@@ -590,6 +722,7 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 			return true; 
 		}
 
+		/* old not delayed
 		// Reply B2 with "SFIN" MAC under sessKey32
 		uint8_t macS[16]; 
 		make_sfin_mac(macS, cliPub);
@@ -605,6 +738,20 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 		s_b0NextAtMs = 0;
 
 		DPRINTLN("[MTLS] ACTIVE (binary)");
+		*/
+		
+		// Build B2 MAC now, but send it slightly later
+		make_sfin_mac(s_b2Mac, cliPub);
+		s_b2Pending  = true;
+		s_b2SendAtMs = millis() + 250; //450;   // <-- delay in ms (tune 80..250)
+
+		// Stop any B0 retransmits now that handshake progressed
+		s_lastB0.clear();
+		s_b0Retries = 0;
+		s_b0NextAtMs = 0;
+
+		DPRINTLN("[MTLS] B2 pending (delay)");		
+		
 		return( true );
 	}
 
@@ -628,8 +775,8 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 			return true; 
 		}
 
-		uint16_t seq  = (uint16_t)p[0] | ((uint16_t)p[1]<<8);
-		uint16_t clen = (uint16_t)p[2] | ((uint16_t)p[3]<<8);
+		uint16_t seq  = ((uint16_t)p[0] << 8) | (uint16_t)p[1];
+		uint16_t clen = ((uint16_t)p[2] << 8) | (uint16_t)p[3];
 		if( n != (2+2+clen+16) ) 
 		{
 			DPRINTLN("[MTLS][B3] len mismatch"); 
@@ -653,9 +800,9 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 		macData.insert(macData.end(), cipher, cipher+clen);
 		
 		uint8_t macExp[16]; 
-		mac16(s_sessKey, macData.data(), macData.size(), macExp);
+		mac16(s_kMac, macData.data(), macData.size(), macExp);
 		
-		if( memcmp(macExp, macIn, 16) != 0 ) 
+		if( !ct_eq16(macExp, macIn) )  
 		{ 
 			DPRINTLN("[MTLS][B3] BADMAC"); 
 			const char* e="BADMAC"; 
@@ -676,7 +823,7 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 		outPlain.resize(clen);
 		uint8_t iv[16]; 
 		ivFrom('C', seq, iv);
-		if( !aesCtr(s_sessKey, iv, cipher, outPlain.data(), clen) )
+		if( !aesCtr(s_kEnc, iv, cipher, outPlain.data(), clen) )
 		{ 
 			DPRINTLN("[MTLS][B3] AES fail"); 
 			outPlain.clear(); 
@@ -684,6 +831,11 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 		}
 
 		++s_seqIn;
+		if( s_seqIn == 0 ) 
+		{
+			mtls_dropSessionAndRequireHandshake("seqIn wrapped");
+			return true; // consumed; session dropped
+		}
 
 		// At this point outPlain holds the inner app frame:
 		// [OP|LENle|PAYLOAD]. The caller (commands.cpp) will
@@ -725,10 +877,17 @@ bool mtls_wrapAndSendBytes_B3(const uint8_t* plain, size_t n)
 {
 	if (!s_active) return( false );
 
+	// Prevent CTR IV reuse on 16-bit sequence wrap (force re-handshake)
+	if( s_seqOut == 0xFFFF ) 
+	{
+		mtls_dropSessionAndRequireHandshake("seqOut wrap imminent");
+		return false;
+	}
+
 	// Encrypt with dir='S'
 	std::vector<uint8_t> enc(n);
 	uint8_t iv[16]; ivFrom('S', s_seqOut, iv);
-	if( !aesCtr(s_sessKey, iv, plain, enc.data(), n) ) return( false );
+	if( !aesCtr(s_kEnc, iv, plain, enc.data(), n) ) return( false );
 
 	// mac over ENCM||sid||'S'||seq||cipher
 	std::vector<uint8_t> macData; 
@@ -744,15 +903,15 @@ bool mtls_wrapAndSendBytes_B3(const uint8_t* plain, size_t n)
 	macData.insert(macData.end(), enc.begin(), enc.end());
 
 	uint8_t mac[16]; 
-	mac16( s_sessKey, macData.data(), macData.size(), mac );
+	mac16( s_kMac, macData.data(), macData.size(), mac );
 
 	// Build B3 payload: seq2 | clen2 | cipher | mac16
 	std::vector<uint8_t> pay; 
 	pay.reserve(2 + 2 + n + 16);
-	pay.push_back((uint8_t)(s_seqOut & 0xFF));
 	pay.push_back((uint8_t)(s_seqOut >> 8));
-	pay.push_back((uint8_t)(n & 0xFF));
-	pay.push_back((uint8_t)(n >> 8));
+	pay.push_back((uint8_t)(s_seqOut & 0xFF));
+	pay.push_back((uint8_t)((n >> 8) & 0xFF));
+	pay.push_back((uint8_t)( n       & 0xFF));
 	pay.insert(pay.end(), enc.begin(), enc.end());
 	pay.insert(pay.end(), mac, mac + 16);
 

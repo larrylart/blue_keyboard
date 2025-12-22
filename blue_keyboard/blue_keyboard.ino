@@ -1,5 +1,5 @@
 ////////////////////////////////////////////////////////////////////
-//  blue_keyboard.ino (v1.2.3)
+//  blue_keyboard.ino (v1.3.0)
 //  Created by: Larry Lart
 //
 //  Main firmware for the BlueKeyboard / BluKey dongle.
@@ -138,6 +138,7 @@ static const uint32_t PIN_DELAY_MS = 600;          // 400–800ms works well, ad
 
 ///////////////////////////////////
 static volatile bool g_isSubscribed = false;
+bool g_notificationsEnabled = false;
 
 // Remember exactly which char/connection is subscribed
 static NimBLECharacteristic* g_txSubChar = nullptr;
@@ -203,6 +204,22 @@ void blinkLed()
 }
 
 ////////////////////////////////////////////////////////////////////
+static bool isLinkSecureForTraffic( uint16_t connHandle )
+{
+    //if( !g_linkEncrypted ) return false;
+
+    // Treat bonded as good enough even if authenticated flag isn't set.
+    ble_gap_conn_desc d{};
+    if( ble_gap_conn_find(connHandle, &d) == 0 ) 
+	{
+        return( d.sec_state.encrypted && (d.sec_state.authenticated || d.sec_state.bonded) );
+    }
+
+    // Fallback if we can't query: keep current strict behavior
+    return( g_linkEncrypted && g_linkAuthenticated );
+}
+
+////////////////////////////////////////////////////////////////////
 // sendTX(data, len)
 //
 // Low-level BLE TX primitive used by the binary protocol layer.
@@ -230,13 +247,29 @@ void blinkLed()
 //     g_txChar->setValue() + notify().
 //   - Inserts a small delay(1) between chunks so the BLE stack does not get
 //     starved on bursty traffic.
+// update: Robust version with retries
 ////////////////////////////////////////////////////////////////////
 bool sendTX(const uint8_t* data, size_t len)
 {
 	if( !g_txChar ) return( false );
 	
 	// Guard: do not send anything over an unencrypted or unauthenticated link.
-	if( !g_linkEncrypted || !g_linkAuthenticated ) return( false );
+	//if( !g_linkEncrypted || !g_linkAuthenticated ) return( false );
+
+	// If we have a conn handle (you track g_txConnHandle when subscribed)
+//	if (!isLinkSecureForTraffic(g_txConnHandle)) return false;
+
+    uint8_t op = data[0];
+    // Handshake opcodes (B0, B1, B2) MUST bypass the BLE link security check - might not be a good idea 
+	// this because darn iphone ble encryption cannot keep it straight - might have to do something about this !!! TODO!
+    bool isHandshake = (op == 0xB0 || op == 0xB1 || op == 0xB2 || op == 0xD1);
+
+    // Only non-handshake frames require a secure link
+    if( !isHandshake && !isLinkSecureForTraffic(g_txConnHandle) ) 
+	{
+        DPRINTLN("[TX] Blocking, link not secure.");
+        return false;
+    }
 
 #ifdef NIMBLE_CPP
 	if( g_txChar->getSubscribedCount() == 0 ) return( false );
@@ -249,6 +282,7 @@ bool sendTX(const uint8_t* data, size_t len)
 
 	//DPRINT("[SENDTX] data=%s, mtu=%d max_payload=%d\n", data, mtu, maxPayload );
 
+/* implementation with no resend
 	size_t off = 0;
 	while (off < len) 
 	{
@@ -264,10 +298,54 @@ bool sendTX(const uint8_t* data, size_t len)
 #endif
 
 		off += n;
-		delay(1); // keep BLE stack happy on bursts
+		// keep BLE stack happy on bursts - was 1 will try a 10ms delay, iphones seems to struggle with bursts
+		delay(10); 
 	
 	}
 	return( true );
+*/
+	
+	size_t off = 0;
+    while (off < len) 
+    {
+        size_t n = len - off;
+        if( n > maxPayload ) n = maxPayload;
+        
+        g_txChar->setValue( reinterpret_cast<const uint8_t*>(data + off), n );
+
+        // 3. RETRY LOGIC
+        // We try up to 3 times with increasing delays.
+        bool sent = false;
+        for(int i=0; i<3; i++) 
+		{
+            #if defined(ARDUINO_ARCH_ESP32)
+                if( g_txChar->notify() ) 
+				{
+                    sent = true;
+                    break;
+                }
+            #else
+                g_txChar->notify();
+                sent = true; 
+                break;
+            #endif
+            
+            // If failed, wait a bit for the next connection interval to clear buffers
+            delay(10 + (i*10)); 
+        }
+
+        if( !sent ) 
+		{
+             DPRINTLN("[TX] FAILED to notify chunk - aborting");
+             return false; 
+        }
+
+        off += n;
+        // Small yield between chunks is still good practice was 2/use 10
+        delay(10); 
+    }
+    return( true );
+
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -304,6 +382,14 @@ void displayStatus( const String& msg, uint16_t color, bool big = true )
 	tft.setTextDatum(TL_DATUM);
 	tft.drawString(msg, bx, by);
 	hasBox = true;
+}
+
+// UI helper used by provisioning code in commands.h
+// Shows a LOCKED message and triggers a red LED blink in the main loop.
+void showLockedNeedsReset()
+{
+    displayStatus("LOCKED", TFT_RED, true);
+    g_blinkLedScheduled = true;
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -562,6 +648,7 @@ static void scheduleHello( uint32_t delayMs = 80 )
 {
 	DPRINT("[HELLO] layout=%s, appKeySet=%d\n", layoutName(m_nKeyboardLayout), isAppKeyMarkedSet());
 
+/* this is no longer needed
 	if( !isAppKeyMarkedSet() ) 
 	{
 		// (1) Unprovisioned: send ONE plaintext banner
@@ -585,10 +672,10 @@ static void scheduleHello( uint32_t delayMs = 80 )
 		
 		return;
 	}
+*/
 
-	// (2) Provisioned: DO NOT send any plaintext banner.
 	// Immediately start MTLS with B0 (binary hello).
-	DPRINTLN("[HELLO] appkey present; skipping plaintext, sending B0...");
+	DPRINTLN("[HELLO] sending B0...");
 	// already implemented in mtls.cpp 
 	bool ok = mtls_sendHello_B0(); 
 	//delay(2); //debug test
@@ -818,27 +905,61 @@ public:
 		              info.getConnHandle(), c->getHandle(), subValue, notifyOn, indicateOn,
 		              c->getUUID().toString().c_str());
 
+		// Check if the subscription is for the RX Characteristic
+		//if( notifyOn ) { g_notificationsEnabled = true;  }
+        if( c->getUUID().equals(NimBLEUUID(CHAR_NOTIFY_UUID)) ) 
+		{
+			g_notificationsEnabled = notifyOn;
+            // subValue is 0x0001 for notifications, 0x0002 for indications
+            //if (subValue == 1) 
+			//{ 
+            //    // Set the global flag to allow mtls_tick() to run
+            //    g_notificationsEnabled = true; 
+            //} else {
+            //    g_notificationsEnabled = false;
+            //}
+        }
+
 		if( g_isSubscribed ) 
 		{
 			// Remember the exact char + connection that is subscribed
 			g_txSubChar    = c;
 			g_txConnHandle = info.getConnHandle();
-			
+
+			// Don't send yet. Just remember we owe a hello for this connection.
+			//g_pendingHello = true;
+			//g_helloDueAtMs = millis() + 10;   // optional small delay after secure
+
+			if( isLinkSecureForTraffic(g_txConnHandle) ) {
+				scheduleHello(50);   // not 10ms
+			} else {
+				// wait for auth complete
+				g_pendingHello = true;
+				g_helloDueAtMs = millis() + 10;   // optional small delay after secure
+			}
+
+/* old implementation - secure connection has not been established yet here			
 			// If we’re not yet encrypted, request it now; notifications will wait.
 			if( !g_linkEncrypted ) 
 			{
-				NimBLEDevice::startSecurity(g_txConnHandle);  // idempotent
+				// already called on connect
+				//NimBLEDevice::startSecurity(g_txConnHandle);  // idempotent
 				// give the stack a moment; we’ll only send after ENC_CHANGE flips the flag
 				// todo: maybe better logic here
+				// CARE WITH THESE DELAYS HERE!
 				scheduleHello(800);
+				//scheduleHello(300);
 				
 			} else 
 			{
-				scheduleHello(500);
+				// this value races with ble enc, to lw will cause app crash for some reason 
+				//scheduleHello(500); 
+				scheduleHello(800); 
 			}			
 			
 			// old impl
 			//scheduleHello(80); // defer actual notify to loop()
+*/
 			
 		} else 
 		{
@@ -997,6 +1118,16 @@ class ServerCallbacks : public NimBLEServerCallbacks
 			// flag for mainb loop to display ready
 			g_displayReadyScheduled = true;
 
+			// If notifications are already enabled, schedule hello now.
+			if( g_isSubscribed && g_txSubChar != nullptr ) {
+				// Build payload and set due time (or just call scheduleHello with a safe delay)
+				scheduleHello(80);  // 50–150ms is fine; pick 80ms
+			} else {
+				// We became secure before subscribe. Remember to send on subscribe later.
+				g_pendingHello = true;
+			}
+
+
 			//delay(500);
 			//displayStatus("READY", TFT_GREEN, true);
 			// after pairing just to let the sender know is ready - also echo so terminals auto-detect TX
@@ -1087,6 +1218,8 @@ void factoryReset()
 	setAllowPairing(true);
 	// clear app key
 	clearAppKeyAndFlag();
+	// clear ble pairing key so on reboot it will generate a new one
+	clearBlePasskey();
 
 	// Clear accept list (whitelist) at the controller level
 	ble_gap_wl_set(nullptr, 0);  
@@ -1251,7 +1384,7 @@ void setup()
     esp_reset_reason_t reason = esp_reset_reason();
     Serial.printf("\n=== BLUE_KEYBOARD boot ===\n[BOOT] reset reason = %d\n", (int)reason);	
 	
-	// USB HID first  
+	// USB HID   
 	USB.begin();
 	delay(200);
 	Keyboard.begin();
@@ -1273,8 +1406,10 @@ void setup()
 	NimBLEDevice::setDeviceName( g_BleName.c_str() );
 	
 	NimBLEDevice::setPower(ESP_PWR_LVL_P9);
-	// disable to try to make it work with new phones - or keep it as a hint
+	// disable to try to make it work with new phones - or keep it as a hint - iphone might need this? need to confirm that causes issues on new phones 
+	// it does seem to have a negative impact on android
 	//NimBLEDevice::setMTU(247);
+	NimBLEDevice::setMTU(185);
 
 	// Register the GAP handler *right after* init and before advertising
 	if( !NimBLEDevice::setCustomGapHandler(bleGapEvent) ) 
@@ -1286,7 +1421,10 @@ void setup()
 	}
 
 	// Generate a random 6-digit PIN per boot and set it as the passkey
-	g_bootPasskey = (esp_random()%900000UL)+100000UL;
+	//g_bootPasskey = (esp_random()%900000UL)+100000UL;
+	//NimBLEDevice::setSecurityPasskey( g_bootPasskey );
+	// Use a STABLE 6-digit passkey (stored in NVS).
+	g_bootPasskey = loadOrGenBlePasskey();
 	NimBLEDevice::setSecurityPasskey( g_bootPasskey );
 
 	// Bonding + MITM + LE Secure Connections - SC does not seem to work in esp32 2.0.14. now fixed with 3.3.x
@@ -1312,7 +1450,14 @@ void setup()
 	NimBLEService* pService = pServer->createService(SERVICE_UUID);
 
 	// TX = Notify to device connecting 
-	g_txChar = pService->createCharacteristic( CHAR_NOTIFY_UUID, NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ_ENC);
+	g_txChar = pService->createCharacteristic( CHAR_NOTIFY_UUID, NIMBLE_PROPERTY::NOTIFY | NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC);
+
+	// Explicit CCCD descriptor with encryption required:
+	//NimBLEDescriptor* cccd = rxChar->createDescriptor(
+	//	"2902", // CCCD UUID
+	//	NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE,  // Required for Core Bluetooth
+	//	ESP_GATT_PERM_READ_ENC | ESP_GATT_PERM_WRITE_ENC // Protect the descriptor itself!
+	//);
 
 	// ADD THIS so onSubscribe fires for the notify char:
 	g_txChar->setCallbacks(new WriteCallback());
@@ -1399,37 +1544,25 @@ void loop()
 		
         interrupts();
 
-        // First try the binary dispatcher (MTLS + commands)
+        // dispatch the binaty frame - if case just for debuging
         if( dispatch_binary_frame(localBuf, len) ) 
 		{
             // frame was consumed (B1/B3/A* or a post-decrypt inner frame)
 			
         } else 
 		{
-            // Legacy plaintext path (your previous logic from handleWrite)
-
-            // Small helper for LOCKED UI
-            auto locked_ui = [&]() {
-                displayStatus("LOCKED", TFT_RED, true);
-                g_blinkLedScheduled = true;
-            };
-
-            // If we’re unprovisioned and hit here, it means the frame wasn’t A0/A3 (these are handled above).
-            if( !isAppKeyMarkedSet() ) {
-                locked_ui();
-                const char* e="need APPKEY";
-                sendFrame(0xFF,(const uint8_t*)e,strlen(e));
-            } else {
-                // Provisioned but not an mTLS frame - plaintext is not allowed anymore.
-                locked_ui();
-                const char* e="need MTLS";
-                sendFrame(0xFF,(const uint8_t*)e,strlen(e));
-            }
+            // Legacy - just drop the case. it should not get here
         }
     }
 	
 	// drives B0 retries while not active	
-	mtls_tick();    
+	//mtls_tick();    
+	// GATED
+    if( g_notificationsEnabled ) 
+	{
+        // This is now delayed until the remote app explicitly says it's ready
+        mtls_tick();    
+    }	
 	
 	// :: led cmds
 	if( g_blinkLedScheduled )

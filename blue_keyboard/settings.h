@@ -10,8 +10,8 @@
 
 
 // Protocol / firmware identifiers 
-#define PROTO_VER "1.3"
-#define FW_VER    "1.2.3"
+#define PROTO_VER "2.0"
+#define FW_VER    "1.4.0"
 
 /////////////////////////////
 // *** DEBUG ***
@@ -70,6 +70,7 @@ static const char* const NVS_KEY_LAYOUT    = "kb_layout";
 static const char* const NVS_KEY_ALLOWPAIR = "allowPair";
 static const char* const NVS_KEY_ALLOW_MULTI_APP = "allowMApp";
 static const char* const NVS_KEY_ALLOW_MULTI_DEV = "allowMDev";
+static const char* const NVS_KEY_BLE_PASSKEY = "ble_pin";
 // app key generation/persistent storage
 static const char* const NVS_KEY_APPKEY     = "app_key32";   // 32 bytes
 static const char* const NVS_KEY_APPKEY_SET = "app_key_set"; // 0/1
@@ -317,6 +318,30 @@ static inline void initBleNameGlobal()
 }
 
 ////////////////////////////////////////////////////////////////////
+// BLE passkey helper
+// Store a single 6-digit passkey in NVS and reuse it across reboots.
+////////////////////////////////////////////////////////////////////
+static inline uint32_t loadOrGenBlePasskey()
+{
+    ensurePrefsOpenRW();
+
+    uint32_t pin = gPrefs.getUInt(NVS_KEY_BLE_PASSKEY, 0);
+    if( pin < 100000UL || pin > 999999UL )
+    {
+        pin = (esp_random() % 900000UL) + 100000UL;
+        gPrefs.putUInt(NVS_KEY_BLE_PASSKEY, pin);
+    }
+    return( pin );
+}
+
+////////////////////////////////////////////////////////////////////
+static inline void clearBlePasskey()
+{
+    ensurePrefsOpenRW();
+    gPrefs.remove(NVS_KEY_BLE_PASSKEY);
+}
+
+////////////////////////////////////////////////////////////////////
 // - Opens NVS namespace.
 // - Initialises global BLE name (NVS or MAC-based default).
 // - Loads keyboard layout (with sane default).
@@ -327,7 +352,8 @@ static inline void initBleNameGlobal()
 static void initSettings()
 {
     ensurePrefsOpenRW();
-
+	(void)loadOrGenBlePasskey();
+	
 	// initiliaze load ble name
 	initBleNameGlobal();
 
