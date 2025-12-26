@@ -86,7 +86,44 @@ Press **Save**, and the dongle will:
 3. After the password is verified and the AppKey is provisioned, the dongle is fully paired and ready for normal use.
    Note: if the dongle disconnects after provisioning, that is due to a bug I have not yet managed to track down. You can fix this by re-opening the app, than manually toggle the dongle connection from settings. This only seems to be happening on the initial connection.  
 
-#### ⚠️ Note: if it fails to pair and/or you do not get the popup to provision the dongle with the password, just toggle the on/off button in the settings (allow a few seconds in between off and on again) until you either get the pairing again or the provisioning password again. Closing the app and opening it again might also help, and/or unplug/plug the dongle in to reboot it. I tried my best to get this to work as best as I could in the time I had, but BLE could be temperamental so more work might be needed here to get it to work smoothly. I will appreacite feedback on this in the issues section.
+#### ⚠️ Note: if it fails to pair and/or you do not get the popup to provision the dongle with the password, just toggle the on/off button in the settings (allow a few seconds in between off and on again) until you either get the pairing again or the provisioning password again. Closing the app and opening it again might also help, and/or unplug/plug the dongle in to reboot it. I tried my best to get this to work as best as I could in the time I had, but BLE could be temperamental so more work might be needed here to get it to work smoothly. I will appreciate feedback on this in the issues section.
+
+## Supported Clients
+
+The Blue Keyboard dongle can be used with multiple companion clients across platforms.
+Below is a list of currently supported and in-progress clients, along with their repositories.
+
+### 📱 Mobile Clients
+
+- **BluKeyborg (Android)**  
+  Android companion app and primary driver for the dongle.  
+  Handles BLE pairing, provisioning, MTLS sessions, layout management, and text/key sending.  
+  👉 https://github.com/larrylart/blukeyborg-android
+
+- **BluKeyborg (iOS)** *(pending first public release)*  
+  iOS companion app and driver for the dongle.  
+  Currently under development; first release pending additional testing and edge-case review.  
+  👉 https://github.com/larrylart/blukeyborg-ios
+
+### 🖥️ Desktop / CLI Clients
+
+- **Linux Command-Line Client**  
+  Minimal CLI client for Linux, useful for testing, scripting, and development.  
+  👉 https://github.com/larrylart/blue_keyboard/tree/main/apps/linux
+
+### 🔐 Password Manager Integrations (Related Repositories)
+
+- **KeePassDX (AIDL Integration Fork)**  
+  Experimental fork of KeePassDX implementing a clean AIDL-based output interface,  
+  allowing external HID providers (like BluKeyborg or InputStick-style devices)  
+  to integrate without embedding device-specific logic.  
+  👉 https://github.com/larrylart/KeePassDX
+
+- **KeePassDX-kb (Legacy Integration Fork)**  
+  Original KeePassDX fork with direct Blue Keyboard integration.  
+  May be phased out if the AIDL-based approach becomes the preferred solution.  
+  👉 https://github.com/larrylart/KeePassDX-kb
+
 
 ---
 ### 🔄 Update **v2.0.0** 
