@@ -87,7 +87,7 @@ Features:
 - Suitable for password managers, shell workflows, and headless systems
 
 **Repository:**  
-https://github.com/larrylart/blue_keyboard/apps/linux
+https://github.com/larrylart/blue_keyboard/tree/main/apps/linux
 
 ---
 
