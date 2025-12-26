@@ -358,5 +358,12 @@ A modified KeePassDX client for Android has been created:
 ## Roadmap / To Do
 
 - More testing is required
-- implement some basic clients for android, iphone and linux
+- aditional fine tuning for BLE/mTLS handshake, adjust legs timing - try to bring connect time under 1s
+- revision of flags and ble setup/callbacks - try to simplify, tidy up that area.
+- a more proper/complete implemntation for various keyboard layout
+- macro support
+- perhaps optional mouse support
+- option to turn off leds/screen
+- differnt led colours/display messages for different stanges of connection - easier to debug connectivity issue
+- variant of this firmware that will be compiled/run without display support so it can be ported on other hardware as well
 
