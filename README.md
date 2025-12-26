@@ -89,6 +89,12 @@ Press **Save**, and the dongle will:
 #### ⚠️ Note: if it fails to pair and/or you do not get the popup to provision the dongle with the password, just toggle the on/off button in the settings (allow a few seconds in between off and on again) until you either get the pairing again or the provisioning password again. Closing the app and opening it again might also help, and/or unplug/plug the dongle in to reboot it. I tried my best to get this to work as best as I could in the time I had, but BLE could be temperamental so more work might be needed here to get it to work smoothly. I will appreacite feedback on this in the issues section.
 
 ---
+### 🔄 Update **v2.0.0** 
+- mTLS provisioning simplified. Change is not backwards compatible, make sure you use the latest client apps for this to work.
+- fixes some mTLS protocol inconsistences
+- improvements in BLE connectivity
+- fixes bugs in pairing, provisioning flow
+
 ### 🔄 Update **v1.2.3** 
 - Fixes for several connectivity bugs
 - Adds support for allowing the dongle to accept multiple apps or devices, depending on the user's choice during the initial setup.
