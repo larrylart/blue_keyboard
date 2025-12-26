@@ -1,9 +1,6 @@
 # 📱 Blue Keyboard – Supported Applications
 
 This folder documents client applications that work with the **Blue Keyboard Dongle**.  
-Each client implements the platform-specific parts of the workflow:
-
-**BLE → encrypted protocol (mTLS) → USB HID**
 
 ---
 
