@@ -740,15 +740,16 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 		DPRINTLN("[MTLS] ACTIVE (binary)");
 		*/
 		
-		// Build B2 MAC now, but send it slightly later
-		make_sfin_mac(s_b2Mac, cliPub);
-		s_b2Pending  = true;
-		s_b2SendAtMs = millis() + 250; //450;   // <-- delay in ms (tune 80..250)
-
+		// if we got here stop sending B0
 		// Stop any B0 retransmits now that handshake progressed
 		s_lastB0.clear();
 		s_b0Retries = 0;
-		s_b0NextAtMs = 0;
+		s_b0NextAtMs = 0;		
+		
+		// Build B2 MAC now, but send it slightly later
+		make_sfin_mac(s_b2Mac, cliPub);
+		s_b2Pending  = true;
+		s_b2SendAtMs = millis() + 50; //450;   // <-- delay in ms (tune 80..250)
 
 		DPRINTLN("[MTLS] B2 pending (delay)");		
 		

@@ -331,7 +331,8 @@ bool sendTX(const uint8_t* data, size_t len)
             #endif
             
             // If failed, wait a bit for the next connection interval to clear buffers
-            delay(10 + (i*10)); 
+            //delay(10 + (i*10)); 
+			delay(2 + (i*2)); 
         }
 
         if( !sent ) 
@@ -342,7 +343,7 @@ bool sendTX(const uint8_t* data, size_t len)
 
         off += n;
         // Small yield between chunks is still good practice was 2/use 10
-        delay(10); 
+        delay(0); // - do I need this ? used to be 10
     }
     return( true );
 
@@ -1022,13 +1023,20 @@ class ServerCallbacks : public NimBLEServerCallbacks
 			400   // timeout       = 400 * 10 ms  = 4000 ms
 		);*/
 
-		NimBLEDevice::startSecurity(info.getConnHandle());
+		// was here not gated - moved below
+		//NimBLEDevice::startSecurity(info.getConnHandle());
 
 		// Decide if this connection is eligible to show a PIN.
 		// We only want PIN for *new* pairing while pairing is open.
 		ble_gap_conn_desc d{};
 		if( ble_gap_conn_find(info.getConnHandle(), &d) == 0 ) 
 		{
+			// gate start security to only if needed
+			if (!d.sec_state.encrypted) 
+			{
+				NimBLEDevice::startSecurity(info.getConnHandle());
+			}			
+			
 			const bool alreadyBonded = d.sec_state.bonded;
 			const bool pairingOpen   = getAllowPairing();
 
@@ -1480,8 +1488,8 @@ void setup()
 	pAdv->setAdvertisementData(advData);
 	pAdv->setScanResponseData(scanData);
 	pAdv->addServiceUUID(SERVICE_UUID);   // helps terminals auto-detect NUS
-	pAdv->setMinInterval(160);
-	pAdv->setMaxInterval(320);
+	pAdv->setMinInterval(48); // was 160
+	pAdv->setMaxInterval(96); // was 320
 
 	// place strict policy here. only advertise if not paired already
 	applyAdvertisePolicyOnBoot();
