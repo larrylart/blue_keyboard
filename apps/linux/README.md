@@ -49,6 +49,19 @@ make
 ```bash
 ./blukeyborg-cli --sendstr="teststring" --to=AA:BB:CC:DD:EE:FF
 ```
+### Clear BlueZ pairing if issues
+If you reset the dongle you might encounter provisioning issue as current cli does not know to handle these edge cases. To solve that you need to remove the pairing from BlueZ and clear current saved data:
+
+```bash
+bluetoothctl
+info 94:A9:90:C9:45:01   # check Paired: yes
+remove 94:A9:90:C9:45:01 # wipe pairing
+quit
+
+rm ./blukeyborg.data     # clear cached APPKEY + paths
+./blukeyborg-cli --prov="94:A9:90:C9:45:01"
+```
+
 
 ## 🚀 Improving BLE Connectivity Speed (BlueZ Tuning)
 
