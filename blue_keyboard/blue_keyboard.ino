@@ -1,33 +1,14 @@
 ////////////////////////////////////////////////////////////////////
-//  blue_keyboard.ino (v1.3.0)
-//  Created by: Larry Lart
+// blue_keyboard.ino (v2.1.0)  - Larry Lart
 //
-//  Main firmware for the BlueKeyboard / BluKey dongle.
-//
-//    - Bring up hardware (USB HID, BLE, TFT display, status LED).
-//    - Manage BLE connection state (connected / paired / encrypted).
-//    - Provide a raw TX pipe (sendTX) for protocol layers.
-//    - Run the Wi-Fi setup portal on first boot to set BLE name,
-//      keyboard layout, and setup password (for APPKEY).
-//    - Kick off the MTLS handshake to the Android app and call
-//      into the binary command/MTLS stack (commands.h + mtls.cpp).
-//    - Drive UI feedback: READY / RECV counters / LED blink.
-//    - Main loop: poll BLE + MTLS tick + LED/timing housekeeping.
-//
-//  The actual protocol and crypto:
-//    - mtls.cpp/.h      : B0/B1/B2/B3 MTLS handshake and record layer
-//    - commands.h       : binary opcodes (APPKEY, layout, SEND_STRING)
-//    - settings.h       : NVS-backed config (AppKey, layout, pairing flag)
-//    - layout_kb_profiles.h + RawKeyboard.h : layout-aware typing
+// ESP32-S3 BLE -> USB HID dongle.
+// - Optional TFT + status LED
+// - Wi-Fi setup portal on first boot (name/layout/AppKey)
+// - BLE pairing policy + whitelist/lock after first bond (optional)
+// - MTLS session on top of BLE (see mtls.cpp) + binary commands (commands.h)
 ////////////////////////////////////////////////////////////////////
 #include <Arduino.h>
 #include <NimBLEDevice.h>
-#include <FastLED.h>
-#include "USB.h"
-#include "USBHIDKeyboard.h"
-#include "USBHIDConsumerControl.h"
-#include "pin_config.h"
-#include "TFT_eSPI.h" 
 #include <Preferences.h>     // NVS key/value
 #include <MD5Builder.h>      // Arduino MD5 helper (ESP32 core)
 #include <esp_system.h>   // esp_restart()
@@ -42,6 +23,24 @@ extern "C"
   #include "host/ble_store.h"
 }
 
+#if !NO_LED	
+#include <FastLED.h>
+#endif
+
+#include "USB.h"
+#include "USBHIDKeyboard.h"
+#include "USBHIDConsumerControl.h"
+
+// include locals first for defines
+#include "settings.h"
+#include "pin_config.h"
+
+// case for no display dongle
+#if !NO_DISPLAY
+#include "TFT_eSPI.h" 
+#endif
+
+
 /////////////////////////////
 // *** DEBUG ***
 #define DEBUG_ENABLED 1
@@ -50,7 +49,6 @@ extern "C"
 
 // locals
 #include "mtls.h"
-#include "settings.h"
 #include "RawKeyboard.h"
 #include "layout_kb_profiles.h"
 #include "commands.h"
@@ -58,9 +56,9 @@ extern "C"
 
 // defines
 #define MAX_RX_MESSAGE_LENGTH 4096
-// Onboard APA102 pins (T-Dongle-S3)
-#define LED_DI 40
-#define LED_CI 39
+// Onboard APA102 pins (T-Dongle-S3) - get thsi from pins file instead LED_DI_PIN etc
+//#define LED_DI 40
+//#define LED_CI 39
 // BLE UUIDs 
 #define SERVICE_UUID      "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
 #define CHAR_WRITE_UUID   "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"  // RX: phone - dongle
@@ -89,7 +87,10 @@ bool g_rawFastMode = false;
 
 /////////////
 CRGB led[1];
+
+#if !NO_DISPLAY
 TFT_eSPI tft = TFT_eSPI();
+#endif
 
 // USB HID keyboard 
 RawKeyboard Keyboard;
@@ -108,33 +109,20 @@ CRGB currentColor = CRGB::Black;
 // flags - schedule display events in the main loop
 static volatile bool g_displayReadyScheduled = false;
 static volatile bool g_blinkLedScheduled = false;
-// Deferred hello
-static volatile bool g_pendingHello = false;
-static uint32_t g_helloDueAtMs = 0;
-static std::string g_helloPayload;
+// have we called mtls_sendHello_B0() for this connection?
+static volatile bool g_mtlsHelloSeeded = false;  
 
-// -----------------------------------------------------------------------------
-// Security / link state flags
-//
-// g_linkEncrypted      : true once the BLE link is encrypted at controller level
-// g_linkAuthenticated  : true once MITM-protected pairing/bonding completed
-// g_bootPasskey        : random 6-digit passkey generated on each boot
-//
-// g_encReady           : “link good enough for UI” (set when both above are true)
-// g_pinShowScheduled   : we plan to show the PIN if encryption is *not* ready
-// g_pinDueAtMs         : deadline; if we reach this without encryption, show PIN
-// PIN_DELAY_MS         : small grace period before we expose the PIN on TFT
-// -----------------------------------------------------------------------------
-static volatile bool g_linkEncrypted = false;
-static volatile bool g_linkAuthenticated = false;
-static uint32_t g_bootPasskey = 0;   // random per boot
+// Link security state (BLE layer)
+static volatile bool g_linkEncrypted = false;			 // controller link encrypted
+static volatile bool g_linkAuthenticated = false;		// MITM/auth complete
+static uint32_t g_bootPasskey = 0;						// 6-digit passkey (NVS)
 
-// Pairing UI gating flags
-static volatile bool g_encReady = false;           // becomes true on ENC_CHANGE/auth complete
-static volatile bool g_pinShowScheduled = false;   // we will show PIN only if still not encrypted after a short delay
-static volatile bool g_pinAllowedThisConn = false;   // only true for real pairing attempts
+// PIN UI gating: show passkey only for real "new pairing" attempts
+static volatile bool g_encReady = false;            // set when we consider link "ready"
+static volatile bool g_pinShowScheduled = false;   // PIN timer armed
+static volatile bool g_pinAllowedThisConn = false;   // only for non-bonded + pairing-open
 static uint32_t g_pinDueAtMs = 0;
-static const uint32_t PIN_DELAY_MS = 600;          // 400–800ms works well, adjust as needed
+static const uint32_t PIN_DELAY_MS = 600;          // small pin display delay
 
 ///////////////////////////////////
 static volatile bool g_isSubscribed = false;
@@ -168,39 +156,34 @@ portMUX_TYPE g_frameMux = portMUX_INITIALIZER_UNLOCKED;
 bool isLinkSecure(){ return g_linkEncrypted && g_linkAuthenticated; }
 
 ////////////////////////////////////////////////////////////////////
-// setLED(color)
-//
-// Tiny wrapper around FastLED for the single APA102 on the LilyGO T-Dongle-S3.
-// Keeps 'currentColor' in sync so higher-level UI code can temporarily override
-// the LED (e.g. blink red) and restore the previous state afterwards.
+// Set the single on-board LED.
 ////////////////////////////////////////////////////////////////////
 static inline void setLED(const CRGB& c) 
 {
 	led[0] = c;
+#if !NO_LED	
 	FastLED.show();
+#endif
+
 }
 
 ////////////////////////////////////////////////////////////////////
-// Blocking 1-second red blink used as a coarse "activity" indicator:
-//
-//   - Sets LED to red for ~1s.
-//   - Restores whatever color was previously in 'currentColor'.
-//
-// This is called from loop() when 'g_blinkLedScheduled' is set by
-// onStringTyped(), so every received+typed string causes a visible flash.
-// NOTE: currently uses delay(1000) and therefore blocks loop(); if needed,
-// this can be refactored into a non-blocking two-stage state machine.
+// Brief red blink (blocks ~80ms). Used as a send string heart beat indicator.
+// NOTE: Uses delay() and therefore blocks loop() briefly - this is blocking to change on main loop
 ////////////////////////////////////////////////////////////////////
 void blinkLed() 
 {
 	led[0] = CRGB::Red;
+#if !NO_LED		
 	FastLED.show();
-	
-	// short 100ms blink - todo: should probably do a non blocking blink
+#endif	
+	// short blink - todo: should probably do a non blocking blink
 	delay(80);
 	
 	led[0] = currentColor;
+#if !NO_LED		
 	FastLED.show();
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -220,34 +203,10 @@ static bool isLinkSecureForTraffic( uint16_t connHandle )
 }
 
 ////////////////////////////////////////////////////////////////////
-// sendTX(data, len)
-//
-// Low-level BLE TX primitive used by the binary protocol layer.
-//
-// Call path:
-//   commands.h::sendFrame(...)  -  mtls_wrapAndSendBytes_B3(...) [optional]  -  sendTX()
-//
-// Expectations:
-//   - 'data' already contains a complete framed message:
-//         [OP][LENle][PAYLOAD]
-//     either in plaintext (pre-MTLS) or already wrapped in a B3 record. 
-//   - The caller does *not* need to worry about ATT_MTU; this function will
-//     chunk the buffer to (MTU-3) sized notifications.
-//
-// Safety:
-//   - Refuses to send if:
-//       - no TX characteristic is set up (g_txChar == nullptr)
-//       - the link is not both encrypted *and* authenticated
-//       - (on NimBLE-CPP builds) there are no subscribers
-//
-// Implementation notes:
-//   - Computes current ATT_MTU and derives 'maxPayload = MTU-3' to account
-//     for the GATT header.
-//   - Walks the input buffer in a loop and sends consecutive chunks via
-//     g_txChar->setValue() + notify().
-//   - Inserts a small delay(1) between chunks so the BLE stack does not get
-//     starved on bursty traffic.
-// update: Robust version with retries
+// BLE TX helper (notifications), chunks to (MTU-3).
+// - Handshake ops (B0/B1/B2/D1) may send before link is fully secure.
+// - All other ops require encrypted + (authenticated OR bonded).
+// - Retries notify() up to 3 times per chunk.
 ////////////////////////////////////////////////////////////////////
 bool sendTX(const uint8_t* data, size_t len)
 {
@@ -282,31 +241,9 @@ bool sendTX(const uint8_t* data, size_t len)
 
 	//DPRINT("[SENDTX] data=%s, mtu=%d max_payload=%d\n", data, mtu, maxPayload );
 
-/* implementation with no resend
+	// retry if failing
 	size_t off = 0;
-	while (off < len) 
-	{
-		size_t n = len - off;
-		if( n > maxPayload ) n = maxPayload;
-
-		g_txChar->setValue( reinterpret_cast<const uint8_t*>(data + off), n );
-
-#if defined(ARDUINO_ARCH_ESP32)
-		if( !g_txChar->notify() ) return( false );
-#else
-		g_txChar->notify();
-#endif
-
-		off += n;
-		// keep BLE stack happy on bursts - was 1 will try a 10ms delay, iphones seems to struggle with bursts
-		delay(10); 
-	
-	}
-	return( true );
-*/
-	
-	size_t off = 0;
-    while (off < len) 
+    while( off < len ) 
     {
         size_t n = len - off;
         if( n > maxPayload ) n = maxPayload;
@@ -350,22 +287,15 @@ bool sendTX(const uint8_t* data, size_t len)
 }
 
 ////////////////////////////////////////////////////////////////////
-// displayStatus(msg, color, big)
-//
-// Central helper for drawing transient status messages on the TFT
-// (READY / SECURED / RESET / PIN / setup hints).
-//
-// Behaviour:
-//   - Clears the bounding box of the previous message only, not the whole
-//     screen, to avoid flicker.
-//   - Centers the new message horizontally and vertically.
-//   - Uses a larger font when 'big == true' (boot, errors, PIN).
-//
-// This is used throughout setup(), the security callbacks, factoryReset(),
-// and the setup portal to keep the UI consistent.
+// Draw a centered status string on TFT.
+// Clears only the previous text area to avoid full-screen flicker.
 ////////////////////////////////////////////////////////////////////
 void displayStatus( const String& msg, uint16_t color, bool big = true ) 
 {
+#if NO_DISPLAY
+    (void)msg; (void)color; (void)big;
+    // No display attached: do nothing (LED feedback still works elsewhere).
+#else	
 	static bool hasBox = false;
 	static int16_t bx, by; static uint16_t bw, bh;
 
@@ -383,33 +313,33 @@ void displayStatus( const String& msg, uint16_t color, bool big = true )
 	tft.setTextDatum(TL_DATUM);
 	tft.drawString(msg, bx, by);
 	hasBox = true;
+#endif	
 }
 
 // UI helper used by provisioning code in commands.h
 // Shows a LOCKED message and triggers a red LED blink in the main loop.
 void showLockedNeedsReset()
 {
+#if !NO_DISPLAY	
     displayStatus("LOCKED", TFT_RED, true);
+#endif
+	
     g_blinkLedScheduled = true;
 }
 
 ////////////////////////////////////////////////////////////////////
-// showPin(pin)
-//
-// Renders the current 6-digit BLE passkey on the TFT as:
-//
-//      "PIN: 123456"
-//
-// Used when the stack decides that this is a "real" pairing (no existing
-// bond) and we want the user to confirm the PIN on the host side. The actual
-// decision to show or hide the PIN is made in schedulePinMaybe() / loop().
+// Show BLE passkey on TFT (only when PIN gating says it's a real pairing flow).
 ////////////////////////////////////////////////////////////////////
 static inline void showPin(uint32_t pin) 
 {
+#if NO_DISPLAY
+    (void)pin;
+#else	
 	char buf[32];
 	snprintf( buf, sizeof(buf), "PIN: %06lu", (unsigned long) pin );
 	//displayStatus(buf, TFT_YELLOW, /*big*/ true);
 	displayStatus(buf, TFT_BLUE, /*big*/ true);
+#endif	
 }
 
 static inline void schedulePinMaybe() 
@@ -425,45 +355,31 @@ static inline void cancelPin()
 }
 
 ////////////////////////////////////////////////////////////////////
-// Compact "READY" banner + device name + layout summary drawn when the BLE
-// link is fully secured and the app has completed initialisation.
-//
-// Called from:
-//   - ServerCallbacks::onAuthenticationComplete() via g_displayReadyScheduled
-//   - loop(), which checks the flag and draws on the next iteration.
-//
-// Keeps the READY UI out of the NimBLE callback context.
+// READY banner (called from loop via flag).
 ////////////////////////////////////////////////////////////////////
-void drawReady() { displayStatus("READY", TFT_GREEN, true); }
-
-////////////////////////////////////////////////////////////////////
-// Updates the small "RECV: <count>" counter on the TFT, showing how many
-// application strings have been received over MTLS and typed on the host. :contentReference[oaicite:1]{index=1}
-//
-// Called from onStringTyped(), which bumps 'recvCount' and schedules a LED
-// blink. This gives the user a quick visual confirmation that a password or
-// payload has just been sent.
-////////////////////////////////////////////////////////////////////
-void drawRecv() 
-{
-	char buf[32];
-	snprintf(buf, sizeof(buf), "RECV: %lu", (unsigned long)recvCount);
-	displayStatus(buf, TFT_WHITE, true);
+void drawReady() 
+{ 
+#if !NO_DISPLAY
+	displayStatus("READY", TFT_GREEN, true); 
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////
-// Called from commands.h once a 0xD0 SEND_STRING frame has:
-//
-//   1. Been received over BLE,
-//   2. Decrypted via MTLS (B3 - inner app frame), and
-//   3. Been fully typed as USB HID keystrokes via sendUnicodeAware(). 
-//
-// Current responsibilities:
-//   - Increment 'recvCount' and refresh the "RECV: N" label on the TFT.
-//   - Set 'g_blinkLedScheduled' so the main loop performs a 1s red blink.
-//
-// NOTE: 'numBytes' is the size of the ciphertext payload as seen by the app;
-// currently unused but kept for future telemetry or rate-limiting.
+// Update RECV counter on TFT. Only used for secure/strings
+////////////////////////////////////////////////////////////////////
+void drawRecv() 
+{
+#if NO_DISPLAY
+    // nothing
+#else	
+	char buf[32];
+	snprintf(buf, sizeof(buf), "RECV: %lu", (unsigned long)recvCount);
+	displayStatus(buf, TFT_WHITE, true);
+#endif	
+}
+
+////////////////////////////////////////////////////////////////////
+// Called after SEND_STRING has been typed; bumps counter + blinks LED.
 ////////////////////////////////////////////////////////////////////
 void onStringTyped( size_t numBytes )
 {
@@ -478,44 +394,12 @@ void onStringTyped( size_t numBytes )
 }
 
 ////////////////////////////////////////////////////////////////////
-// handleWrite(val_in)
-//
-// Central handler for all data written to the NUS RX characteristic
-// (CHAR_WRITE_UUID) by the app over BLE. 
-//
-// Responsibilities:
-//   - Optional: log the first few bytes of the incoming buffer in hex for
-//     debugging (useful when bringing up new protocol versions).
-//   - Enforce a hard cap of MAX_RX_MESSAGE_LENGTH to avoid unbounded RAM use
-//     or malformed writes.
-//   - Forward the raw byte buffer to dispatch_binary_frame(), which parses
-//     the [OP|LEN|PAYLOAD] framing and:
-//
-//        - Handles B1/B3 (MTLS handshake / encrypted records) in mtls.cpp.
-//        - Routes application opcodes (layout/info/reset/send_string) in
-//          commands.h.
-//
-// This function is called from NimBLE's characteristic callbacks
-// (WriteCallback::onWrite()) and therefore should return quickly and avoid
-// any heavy work in the BLE stack context.
+// BLE RX handler (Write callback).
+// Validates [OP][LENle][PAYLOAD] then queues one frame for loop() to process.
+// Keeps NimBLE callback path short.
 ////////////////////////////////////////////////////////////////////
 void handleWrite( const std::string& val_in ) 
-{
-	// Quick hex log (first 64 bytes) - disable in release mode
-	/*if( !DEBUG_GLOBAL_DISABLED && DEBUG_ENABLED && !val_in.empty() ) 
-	{
-		const uint8_t* b0 = reinterpret_cast<const uint8_t*>(val_in.data());
-		size_t n0 = val_in.size(), m0 = n0 < 64 ? n0 : 64;
-		static const char* H = "0123456789abcdef";
-		String hx; hx.reserve(m0*2);
-		for( size_t i = 0; i < m0; ++i ) 
-		{ 
-			hx += H[b0[i] >> 4]; 
-			hx += H[b0[i] & 0xF]; 
-		}
-		DPRINT("[CMD][RX] rawLen=%u hex[64]=%s\n", (unsigned)n0, hx.c_str());
-	}*/
-	
+{	
 	// debug heap alignment problem - just keep this in place for now - todo: clear if all good in the future 
 	String hx; hx.reserve(128); 
 	
@@ -539,20 +423,6 @@ void handleWrite( const std::string& val_in )
 		sendFrame(0xFF,(const uint8_t*)e,strlen(e)); 
 		return; 
 	}
-
-/* we do the processing in the main loop
-	// IMPORTANT: Always try the binary dispatcher FIRST
-	// It will:
-	//  - handle B1/B3 (mTLS handshake / encrypted app frames)
-	//  - handle A0/A3 (APPKEY provisioning) when unprovisioned
-	//  - fall through (return false) for anything not recognized
-	// commands.h
-	if( dispatch_binary_frame(b, 3 + len) ) 
-	{
-		// frame was consumed (B1/B3/A* or a post-decrypt inner frame)
-		return;  
-	}
-*/
 
 	//////////////
 	// new processing scheduled for main loop
@@ -591,163 +461,12 @@ void handleWrite( const std::string& val_in )
     // Return quickly; actual processing happens in loop()
 	return;
 
-/* moved this section in the main look
-	// Legacy plaintext path below (only reached if not a recognized binary frame)
-
-	// Small helper for LOCKED UI
-	auto locked_ui = [&]()
-	{
-		displayStatus("LOCKED", TFT_RED, true);
-		g_blinkLedScheduled = true;
-	};
-
-	// If we’re unprovisioned and hit here, it means the frame wasn’t A0/A3 (these are handled above).
-	if( !isAppKeyMarkedSet() ) 
-	{
-		locked_ui();
-		const char* e="need APPKEY";
-		sendFrame( 0xFF,(const uint8_t*)e,strlen(e) );
-		return;
-	}
-
-	// Provisioned but not an mTLS frame - plaintext is not allowed anymore.
-	locked_ui();
-	const char* e="need MTLS";
-	sendFrame( 0xFF,(const uint8_t*)e,strlen(e) );
-	return;
-*/
-
 }
 
 ////////////////////////////////////////////////////////////////////
-// scheduleHello(delayMs)
-//
-// Schedules an initial "hello" to the connected app once notifications have
-// been subscribed on the TX characteristic.
-//
-// Two modes:
-//
-//   (1) Unprovisioned (no AppKey in NVS):
-//       - Build a short ASCII info banner:
-//             "LAYOUT=<SHORT>; PROTO=<PROTO_VER>; FW=<FW_VER>"
-//         using the current keyboard layout, protocol version, and firmware
-//         version from settings.h. 
-//       - Store it in g_helloPayload and set g_pendingHello/g_helloDueAtMs.
-//       - The main loop will later send it via sendTX() once the link is
-//         encrypted.
-//
-//   (2) Provisioned (AppKey already set):
-//       - Do *not* send any plaintext banner.
-//       - Immediately kick off the binary MTLS handshake by calling
-//         mtls_sendHello_B0(), which sends a B0 HELLO with the server
-//         ephemeral ECDH key. :contentReference[oaicite:5]{index=5}
-//
-// This indirection keeps NimBLE callbacks simple and lets loop() decide the
-// exact timing of the first notify.
-////////////////////////////////////////////////////////////////////
-static void scheduleHello( uint32_t delayMs = 80 )
-{
-	DPRINT("[HELLO] layout=%s, appKeySet=%d\n", layoutName(m_nKeyboardLayout), isAppKeyMarkedSet());
-
-/* this is no longer needed
-	if( !isAppKeyMarkedSet() ) 
-	{
-		// (1) Unprovisioned: send ONE plaintext banner
-		// Build "LAYOUT=...; PROTO=...; FW=..."
-		String line = "LAYOUT=";
-		const char* full = layoutName(m_nKeyboardLayout); // "LAYOUT_UK_WINLIN" etc. :contentReference[oaicite:0]{index=0}
-		// Strip "LAYOUT_"
-		const char* shortName = (strncmp(full, "LAYOUT_", 7)==0) ? (full+7) : full;
-		line += shortName;
-		line += "; PROTO=";
-		line += PROTO_VER;
-		line += "; FW=";
-		line += FW_VER;
-
-		// Queue to send (same mechanism you used before for CONNECTED=...)
-		g_helloPayload  = line.c_str(); 
-		g_pendingHello  = true;
-		g_helloDueAtMs  = millis() + delayMs;
-		
-		DPRINTLN("[HELLO] plaintext INFO scheduled (unprovisioned).");
-		
-		return;
-	}
-*/
-
-	// Immediately start MTLS with B0 (binary hello).
-	DPRINTLN("[HELLO] sending B0...");
-	// already implemented in mtls.cpp 
-	bool ok = mtls_sendHello_B0(); 
-	//delay(2); //debug test
-	//DPRINT("[HELLO] mtls_sendHello_B0() -> %s\n", ok ? "OK" : "FAILED");
-}
-
-////////////////////////////////////////////////////////////////////
-// Called once per loop() to actually send the scheduled hello banner, but
-// only when it is safe and appropriate to do so.
-//
-// Guard conditions:
-//   - g_pendingHello      : a banner was scheduled by scheduleHello()
-//   - g_isSubscribed      : central has enabled notifications
-//   - g_txSubChar != null : we know which characteristic to use
-//   - millis() >= g_helloDueAtMs
-//
-// When all guards pass:
-//   - Sends g_helloPayload via sendTX(), which itself enforces that the BLE
-//     link is encrypted+authenticated.
-//   - Clears g_pendingHello on success.
-//
-// For provisioned devices there is no plaintext banner; MTLS is started
-// directly and this function becomes a no-op.
-////////////////////////////////////////////////////////////////////
-static void flushHelloIfDue() 
-{
-    if( !g_pendingHello || !g_isSubscribed || g_txSubChar == nullptr ) return;
-	
-    // NEW: don’t notify until the link is encrypted - done in sendTX
-    //if( !g_linkEncrypted ) return;	
-	
-    if( (int32_t)(millis() - g_helloDueAtMs) < 0 ) return;
-
-	// send with check for enc connection
-	bool ok = sendTX( (const uint8_t*)g_helloPayload.data(), g_helloPayload.size() );
-
-//    g_txSubChar->setValue((const uint8_t*)g_helloPayload.data(), g_helloPayload.size());
-
-    // Send to the specific connection that subscribed
-//    bool ok = g_txSubChar->notify(g_txConnHandle);
-    //DPRINT("[HELLO] notify(conn=%u,char=%u) -> %s\n",
-    //              g_txConnHandle, g_txSubChar->getHandle(), ok ? "OK" : "FAIL");
-
-    if( ok ) g_pendingHello = false;
-}
-
-////////////////////////////////////////////////////////////////////
-// bleGapEvent(event, arg)
-//
-// Custom NimBLE GAP handler used to enforce pairing policy and keep the
-// controller's accept list (whitelist) in sync with NVS settings. :contentReference[oaicite:6]{index=6}
-//
-// Handles a few key events:
-//
-//   - BLE_GAP_EVENT_CONNECT
-//       - (legacy logic commented out) could reject connections from
-//         unbonded centrals when pairing is locked.
-//       - Today, most of the security policy is enforced via the advertising
-//         filter in applyAdvertisePolicyOnBoot() and ServerCallbacks.
-//
-//   - BLE_GAP_EVENT_DISCONNECT
-//       - Restarts advertising with the same scan/connect filter policy,
-//         respecting the persistent "allow pairing" flag from settings.
-//
-//   - BLE_GAP_EVENT_ENC_CHANGE (old code commented out)
-//       - Link-encryption status is now tracked via the higher-level
-//         ServerCallbacks::onAuthenticationComplete() path, so this event
-//         is mostly left in as reference.
-//
-// Any events we do not explicitly care about fall through to the default
-// case and are ignored.
+// Low-level GAP hook (policy + debug).
+// - ENC_CHANGE: update flags, lock pairing after first bond (optional), handle fail.
+// - DISCONNECT: restart advertising using current pairing policy.
 ////////////////////////////////////////////////////////////////////
 static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ ) 
 {
@@ -767,16 +486,6 @@ static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ )
                    event->connect.conn_handle,
                    rc);
 			
-			// If device is locked (pairing closed) and central is NOT bonded, disconnect immediately.
-			/* - do not do this on connect! to clean//ble_gap_conn_desc d{};
-			if (ble_gap_conn_find(event->connect.conn_handle, &d) == 0) 
-			{
-				if (!getAllowPairing() && !d.sec_state.bonded) 
-				{
-					ble_gap_terminate(event->connect.conn_handle, BLE_ERR_REM_USER_CONN_TERM);
-					return 0;
-				}
-			}*/
 			break;
 		}
 		
@@ -825,6 +534,23 @@ static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ )
 						adv->start();
 					}
 				}
+				
+			} else
+			{
+				// ENC failed -> clean state and disconnect so pairing can retry without unplug
+				g_encReady = false;
+				g_linkEncrypted = false;
+				g_linkAuthenticated = false;
+
+				cancelPin();
+				g_pinAllowedThisConn = false;
+
+#if !NO_DISPLAY
+				displayStatus("PAIR FAIL", TFT_RED, true);
+#endif
+				g_blinkLedScheduled = true;
+
+				ble_gap_terminate(event->enc_change.conn_handle, BLE_ERR_REM_USER_CONN_TERM);				
 			}
 			break;
 		}		
@@ -841,39 +567,6 @@ static int bleGapEvent( struct ble_gap_event *event, void * /*arg*/ )
 			break;
 		}
 		
-		/* old to remove??
-		case BLE_GAP_EVENT_ENC_CHANGE: {
-		  // status==0 => link is encrypted (bond was present or pairing just finished)
-		  g_encReady = (event->enc_change.status == 0);
-		  
-		  // also set this - check duplaicate flag g_encReady - g_linkEncrypted?
-		  g_linkEncrypted = (event->enc_change.status == 0);
-		  
-		  if( g_encReady ) cancelPin();
-		  break;
-		}*/		
-		
-		/*case BLE_GAP_EVENT_PASSKEY_ACTION: 
-		{
-		  // If NimBLE does request a display action, show immediately and skip the delay
-		  if( event->passkey.action == BLE_SM_IOACT_DISP ||
-			  event->passkey.action == BLE_SM_IOACT_NUMCMP ) 
-		  {
-			showPin(event->passkey.passkey);
-			g_pinShowScheduled = false;
-		  }
-		  break;
-		}*/
-
-/*		// try to catch on connect and send back the connect echo
-		case BLE_GAP_EVENT_SUBSCRIBE: 
-		{
-			//do not know what 8 is
-			if( event->subscribe.attr_handle == 8 ) sendConnectedEcho();
-				
-			break;
-		}
-*/
 		// defaults
 		default: 
 		{
@@ -911,14 +604,6 @@ public:
         if( c->getUUID().equals(NimBLEUUID(CHAR_NOTIFY_UUID)) ) 
 		{
 			g_notificationsEnabled = notifyOn;
-            // subValue is 0x0001 for notifications, 0x0002 for indications
-            //if (subValue == 1) 
-			//{ 
-            //    // Set the global flag to allow mtls_tick() to run
-            //    g_notificationsEnabled = true; 
-            //} else {
-            //    g_notificationsEnabled = false;
-            //}
         }
 
 		if( g_isSubscribed ) 
@@ -927,40 +612,14 @@ public:
 			g_txSubChar    = c;
 			g_txConnHandle = info.getConnHandle();
 
-			// Don't send yet. Just remember we owe a hello for this connection.
-			//g_pendingHello = true;
-			//g_helloDueAtMs = millis() + 10;   // optional small delay after secure
-
-			if( isLinkSecureForTraffic(g_txConnHandle) ) {
-				scheduleHello(50);   // not 10ms
-			} else {
-				// wait for auth complete
-				g_pendingHello = true;
-				g_helloDueAtMs = millis() + 10;   // optional small delay after secure
-			}
-
-/* old implementation - secure connection has not been established yet here			
-			// If we’re not yet encrypted, request it now; notifications will wait.
-			if( !g_linkEncrypted ) 
+			if( isLinkSecureForTraffic(g_txConnHandle) ) 
 			{
-				// already called on connect
-				//NimBLEDevice::startSecurity(g_txConnHandle);  // idempotent
-				// give the stack a moment; we’ll only send after ENC_CHANGE flips the flag
-				// todo: maybe better logic here
-				// CARE WITH THESE DELAYS HERE!
-				scheduleHello(800);
-				//scheduleHello(300);
-				
+				mtls_sendHello_B0();          // seeds cached B0 + retry timer (does not send immediately)
+				g_mtlsHelloSeeded = true;
 			} else 
 			{
-				// this value races with ble enc, to lw will cause app crash for some reason 
-				//scheduleHello(500); 
-				scheduleHello(800); 
-			}			
-			
-			// old impl
-			//scheduleHello(80); // defer actual notify to loop()
-*/
+				// na
+			}
 			
 		} else 
 		{
@@ -983,28 +642,13 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		DPRINT("ServerCallbacks::onConnect connHandle addr\n");
 
 		g_isSubscribed = false;
+		g_mtlsHelloSeeded = false;
 
-		setLED(CRGB::Green);
-		currentColor = CRGB::Green;
-
-		/*// Reset link flags and start security; show pairing UI + PIN.
-		g_linkEncrypted = g_linkAuthenticated = false;
-		g_encReady = false;
-
-		// Request 30–50 ms interval, 0 latency, 4 s supervision timeout
-		server->updateConnParams(
-			info.getConnHandle(),
-			24,   // min interval  = 24 * 1.25 ms = 30 ms
-			40,   // max interval  = 40 * 1.25 ms = 50 ms
-			0,    // latency       = 0
-			400   // timeout       = 400 * 10 ms  = 4000 ms
-		);
-
-		// Kick off security on every link, but DO NOT show the PIN yet.
-		NimBLEDevice::startSecurity(info.getConnHandle());
-
-		// Defer showing the PIN — if bond exists, ENC will succeed quickly and we’ll cancel.
-		schedulePinMaybe();*/
+		//setLED(CRGB::Green);
+		//currentColor = CRGB::Green;
+		// red-orange = connected but not paired yet
+		setLED(CRGB(255, 64, 0));     
+		currentColor = CRGB(255, 64, 0);		
 		
 		// Reset link flags and start security
 		g_linkEncrypted      = false;
@@ -1013,26 +657,14 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		g_pinShowScheduled   = false;
 		g_pinAllowedThisConn = false;
 
-		// Request 30–50 ms interval, 0 latency, 4 s supervision timeout
-		/* disable to see if this works with new phones ? YES! avoid this setting on new phone. proved to cause problems
-		server->updateConnParams(
-			info.getConnHandle(),
-			24,   // min interval  = 24 * 1.25 ms = 30 ms
-			40,   // max interval  = 40 * 1.25 ms = 50 ms
-			0,    // latency       = 0
-			400   // timeout       = 400 * 10 ms  = 4000 ms
-		);*/
-
-		// was here not gated - moved below
-		//NimBLEDevice::startSecurity(info.getConnHandle());
-
 		// Decide if this connection is eligible to show a PIN.
 		// We only want PIN for *new* pairing while pairing is open.
 		ble_gap_conn_desc d{};
 		if( ble_gap_conn_find(info.getConnHandle(), &d) == 0 ) 
 		{
 			// gate start security to only if needed
-			if (!d.sec_state.encrypted) 
+			//if (!d.sec_state.encrypted) 
+			if (!d.sec_state.bonded || !d.sec_state.encrypted)				
 			{
 				NimBLEDevice::startSecurity(info.getConnHandle());
 			}			
@@ -1055,13 +687,6 @@ class ServerCallbacks : public NimBLEServerCallbacks
 				schedulePinMaybe();
 			}
 		}				
-
-		//displayStatus("PAIRING...", TFT_YELLOW, true); // should implement this latter ?
-		//showPin(g_bootPasskey);
-		//    NimBLEDevice::startSecurity(info.getConnHandle());
-
-		// Optional: echo current layout so phone/terminal sees readiness quickly? 
-		//sendConnectedEcho();
 	}
 
 	void onDisconnect(NimBLEServer* server, NimBLEConnInfo& info, int reason) override 
@@ -1074,6 +699,7 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		g_linkAuthenticated = false;
 		g_encReady = false;
 		g_pinAllowedThisConn = false; 
+		g_mtlsHelloSeeded = false;
 		  
 		// kill raw fast mode on link drop
 		g_rawFastMode = false;		  
@@ -1082,7 +708,7 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		  
 		setLED(CRGB::Black);
 		//displayStatus("ADVERTISING", TFT_YELLOW, true);
-		//displayStatus("READY", TFT_GREEN, true);
+
 		g_displayReadyScheduled = true;
 
 		g_linkEncrypted = g_linkAuthenticated = false;
@@ -1121,50 +747,61 @@ class ServerCallbacks : public NimBLEServerCallbacks
 		
 			cancelPin();
 			g_pinAllowedThisConn = false; 
-			
+
+			// yellow = paired/secured, MTLS not active yet
+			setLED(CRGB(255, 200, 0)); 
+			currentColor = CRGB(255, 200, 0);
+
+#if !NO_DISPLAY				
 			displayStatus("SECURED", TFT_GREEN, true);
+#endif			
 			// flag for mainb loop to display ready
 			g_displayReadyScheduled = true;
 
 			// If notifications are already enabled, schedule hello now.
-			if( g_isSubscribed && g_txSubChar != nullptr ) {
-				// Build payload and set due time (or just call scheduleHello with a safe delay)
-				scheduleHello(80);  // 50–150ms is fine; pick 80ms
-			} else {
-				// We became secure before subscribe. Remember to send on subscribe later.
-				g_pendingHello = true;
+			if( !g_mtlsHelloSeeded && g_isSubscribed && g_txSubChar != nullptr ) 
+			{
+				mtls_sendHello_B0();          // seeds cached B0 + retry timer (does not send immediately)
+				g_mtlsHelloSeeded = true;
+			} else 
+			{
+				// We became secure before subscribe. Remember to send on subscribe later.			
 			}
-
-
-			//delay(500);
-			//displayStatus("READY", TFT_GREEN, true);
-			// after pairing just to let the sender know is ready - also echo so terminals auto-detect TX
-			//sendTX("BLUE_KEYBOARD_SRV_READY\n");
-			  
-			//scheduleHello();
 
 		} else 
 		{
+#if !NO_DISPLAY				
 			displayStatus("PAIR FAIL", TFT_RED, true);
+#endif
+			g_blinkLedScheduled = true;
+
+			// Reset pairing UI/security flags so we don't get stuck
+			g_encReady = false;
+			cancelPin();
+			g_pinAllowedThisConn = false;
+			g_linkEncrypted = false;
+			g_linkAuthenticated = false;
+
+			// Delete stale/partial bond for this peer so phone will show pairing UI again
+			ble_gap_conn_desc d{};
+			if (ble_gap_conn_find(info.getConnHandle(), &d) == 0) {
+				ble_store_util_delete_peer(&d.peer_id_addr);
+			}
+
+			// Force disconnect so the OS restarts pairing cleanly on next connect
+			ble_gap_terminate(info.getConnHandle(), BLE_ERR_REM_USER_CONN_TERM);			
 		}
 	}
   
 };
 
 ////////////////////////////////////////////////////////////////////
-// pollResetButtonLongPress()
+// Poll BOOT button for a long-press reset.
+// - Active-low input (pull-up enabled)
+// - Triggers factoryReset() after ~3s hold (one-shot)
+// - State resets on release
 //
-// Non-blocking polling logic for the physical BOOT / reset button.
-//
-// Behaviour:
-//   - Treats BTN_PIN as active-low input with an internal pull-up.
-//   - Tracks "press start" time whenever the button transitions from up-down.
-//   - If the button is held for ≥ 3 seconds and not yet consumed, calls
-//     factoryReset() exactly once (per press).
-//   - Resets all internal state when the button is released.
-//
-// This is called from loop() on every iteration; there are no delays inside,
-// so it does not block other work.
+// Called every loop() iteration (non-blocking)
 ////////////////////////////////////////////////////////////////////
 void pollResetButtonLongPress() 
 {
@@ -1202,25 +839,18 @@ void pollResetButtonLongPress()
 ////////////////////////////////////////////////////////////////////
 // factoryReset()
 //
-// Full "security factory reset" triggered by a long press on BTN_PIN.
-//
-// Steps:
-//   1) Show a red "RESET" banner on the TFT.
-//   2) Delete all BLE bonds from the NimBLE stack.
-//   3) Force pairing unlocked:
-//        - setAllowPairing(true) so the next boot will advertise as open.
-//   4) Wipe AppKey + setup flags from NVS via clearAppKeyAndFlag(), which
-//      also removes the web-setup KDF parameters and BLE name overrides. :contentReference[oaicite:7]{index=7}
-//   5) Clear the controller accept list (whitelist) and restart advertising
-//      in "connect-any" mode.
-//   6) Delay ~1.5s so the user can see the message, then reboot the ESP.
-//
-// After reboot the device behaves as a brand-new dongle and will bring up
-// the Wi-Fi setup portal again on first run.
+// Hard reset of security + provisioning state.
+// - Deletes all BLE bonds
+// - Unlocks pairing
+// - Clears AppKey and setup flags from NVS
+// - Clears controller whitelist
+// - Reboots after short user-visible delay
 ////////////////////////////////////////////////////////////////////
 void factoryReset() 
 {
+#if !NO_DISPLAY		
 	displayStatus("RESET", TFT_RED, true);
+#endif	
 
 	NimBLEDevice::deleteAllBonds();
 	setAllowPairing(true);
@@ -1242,24 +872,9 @@ void factoryReset()
 }
 
 ////////////////////////////////////////////////////////////////////
-// Central place for enforcing the "lock pairing after setup" policy at the
-// controller / advertising level.
-//
-// Reads the persistent flag from NVS via getAllowPairing():
-//
-//   - If pairing is allowed (unlocked):
-//       - Clear the controller accept-list (ble_gap_wl_set(nullptr, 0)).
-//       - Advertise with -connect-any- policy so *any* central can pair.
-//
-//   - If pairing is locked:
-//       - Query NimBLE for all stored bonds (ble_store_util_bonded()).
-//       - Populate a temporary array of peer identities and install it as the
-//         controller accept-list via ble_gap_wl_set(..., count).
-//       - Configure advertising with -connect-whitelist-only- so only already
-//         bonded centrals can connect.
-//
-// This function is called once from setup() after NimBLE initialisation and
-// before advertising is started.
+// Apply pairing policy to controller whitelist + advertising filter.
+// - If pairing unlocked: connect-any.
+// - If locked: connect-whitelist-only using stored bonds (self-heal if none).
 ////////////////////////////////////////////////////////////////////
 static void applyAdvertisePolicyOnBoot() 
 {
@@ -1307,23 +922,8 @@ static void applyAdvertisePolicyOnBoot()
 }
 
 ////////////////////////////////////////////////////////////////////
-// One-time hardware + stack initialisation:
-//
-//   - Configures BOOT / reset button and on-board APA102 LED.
-//   - Brings up the TFT and draws an initial splash/READY state.
-//   - Opens NVS and initialises settings (BLE name, layout, AppKey / KDF,
-//     pairing flag) via initSettings(). 
-//   - If the "first-run" flag is not set, runs the Wi-Fi setup portal to
-//     collect BLE name, layout, and a one-time password, then derives and
-//     stores KDF params and AppKey. 
-//   - Initialises USB HID (RawKeyboard), TinyUSB device descriptors, and BLE
-//     (NimBLEDevice) with the chosen name.
-//   - Sets up security parameters (bonding + MITM + LE SC), GAP handler,
-//     server/service/characteristics for the NUS-style service.
-//   - Applies the advertising policy (locked vs unlocked pairing) and starts
-//     advertising.
-//
-// After setup() returns, loop() drives UI, MTLS retries, and BLE housekeeping.
+// Boot init: HW + display + settings + optional setup portal.
+// Then bring up USB HID + NimBLE + security + characteristics + advertising policy.
 ////////////////////////////////////////////////////////////////////
 void setup() 
 {
@@ -1331,45 +931,35 @@ void setup()
 	pinMode(BTN_PIN, INPUT_PULLUP);   
 	
 	// LEDs
-	FastLED.addLeds<APA102, LED_DI, LED_CI, BGR>(led, 1);
+#if NO_LED	
+	// do nothing
+#elif (BLUKEY_BOARD == BLUKEY_BOARD_LILYGO_TDONGLE_S3) || !defined(BLUKEY_BOARD)	
+	//FastLED.addLeds<APA102, LED_DI, LED_CI, BGR>(led, 1);
+	FastLED.addLeds<APA102, LED_DI_PIN, LED_CI_PIN, BGR>(led, 1);
+#elif (BLUKEY_BOARD == BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147)
+	FastLED.addLeds<WS2812B, LED_DI_PIN, RGB>(led, 1);
+#elif (BLUKEY_BOARD == BLUKEY_BOARD_ESP32S3_ZERO)
+	FastLED.addLeds<WS2812B, LED_DI_PIN, GRB>(led, 1);
+#endif
+
 	setLED(CRGB::Black);
 
+#if !NO_DISPLAY
 	pinMode(TFT_LEDA_PIN, OUTPUT);
 	tft.init();
 	tft.setSwapBytes(true);
 	tft.setRotation(1);
 	tft.fillScreen(TFT_BLACK);
+#if (BLUKEY_BOARD == BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147)	
+	digitalWrite(TFT_LEDA_PIN, 1);
+#else
 	digitalWrite(TFT_LEDA_PIN, 0);
+#endif	
 	drawReady();
+#endif
 
 	// load prefs from persisten storage
 	initSettings();
-
-	/* extr debug if needed
-    // DEBUG: dump pairing policy + bonds at boot
-    {
-        bool allowPair = getAllowPairing();
-        bool allowMultiDev = getAllowMultiDevicePairing();
-        bool allowMultiApp = getAllowMultiAppProvisioning(); // if you have this accessor
-
-        ble_addr_t addrs[8];
-        int capacity = (int)(sizeof(addrs) / sizeof(addrs[0]));
-        int count = capacity;
-        int rc = ble_store_util_bonded_peers(addrs, &count, capacity);
-
-        DPRINT("[BOOT][BLE] allowPair=%d allowMultiDev=%d allowMultiApp=%d rc=%d bonds=%d\n",
-               (int)allowPair, (int)allowMultiDev, (int)allowMultiApp, rc, count);
-
-        for (int i = 0; i < count; ++i) {
-            ble_addr_t &a = addrs[i];
-            DPRINT("[BOOT][BLE] bond[%d] type=%d addr=%02X:%02X:%02X:%02X:%02X:%02X\n", i, a.type,
-                   a.val[5], a.val[4], a.val[3], a.val[2], a.val[1], a.val[0]);
-        }
-    }
-	*/
-
-	// set BLE name - also used in setup for default
-	//initBleNameGlobal();
 
 	// if key was not setup, spin a webserver so you can setup over wifi softap
 	if( !isSetupDone() ) 
@@ -1485,9 +1075,66 @@ void setup()
 	scanData.setName( g_BleName.c_str() );
 	scanData.setCompleteServices(NimBLEUUID(SERVICE_UUID));
 
+	// *** Manufacturer Specific Data for BlueKeyboard (BK) ***
+	////////////
+	// Company ID: 0xFFFF = dev/internal - this will normally be regsitered Bluetooth SIG Company ID
+    const uint16_t companyId = 0xFFFF;
+
+	// 0x01 = T-Dongle-S3 display, 0x02 = no display, etc.
+#if NO_DISPLAY	
+    const uint8_t modelId   = 0x02;  
+#else
+	const uint8_t modelId   = 0x01;  
+#endif	
+    const uint8_t areaId    = 0x00;  // 0=Unknown, 1=Home, 2=Work, 3=Portable...
+    const uint8_t hostType  = 0x00;  // 0=Universal, 1=PC, 2=Server, 3=TV, 4=MediaPlayer...
+    const uint8_t hostBrand = 0x00;  // 0=Unknown, 1=Generic, 2=Samsung, 3=LG, ...
+    const uint8_t hostModel = 0x00;  // brand-specific model code (0 for now)
+    const uint8_t flags     = 0x00;  // reserved/blank for now - we should avoid using security seinsitive info here
+
+    // MAC tail (BT MAC): last 2 bytes, handy to disambiguate same-named devices
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_BT);
+    const uint8_t macTail0 = mac[4];
+    const uint8_t macTail1 = mac[5];
+
+    // Build blob: [CompanyID LE][ 'B''K' model area hostType hostBrand hostModel flags macTail0 macTail1 ]
+    uint8_t mfg[2 + 10] = {0};
+//    uint8_t mfg[10] = {0};
+
+    size_t i = 0;
+
+    // Company ID 0xFFFF (dev) - little-endian 
+    mfg[i++] = (uint8_t)(companyId & 0xFF);
+    mfg[i++] = (uint8_t)((companyId >> 8) & 0xFF);
+
+    // Payload
+    mfg[i++] = 'B';
+    mfg[i++] = 'K';
+    mfg[i++] = modelId;
+    mfg[i++] = areaId;
+    mfg[i++] = hostType;
+    mfg[i++] = hostBrand;
+    mfg[i++] = hostModel;
+    mfg[i++] = flags;
+    mfg[i++] = macTail0;
+    mfg[i++] = macTail1;
+
+    std::string mfgStr((const char*)mfg, i);
+
+    // ADV so scanners can filter without active scan requests.
+    advData.setManufacturerData(mfgStr);
+
+    // we ever over 31-byte ADV limit use scanData instead
+    // scanData.setManufacturerData(mfgStr);
+
 	pAdv->setAdvertisementData(advData);
 	pAdv->setScanResponseData(scanData);
-	pAdv->addServiceUUID(SERVICE_UUID);   // helps terminals auto-detect NUS
+	
+	// helps terminals auto-detect NUS
+	//do not need this here as I already do scanData.setCompleteServices(NimBLEUUID(SERVICE_UUID)) ?
+	pAdv->addServiceUUID(SERVICE_UUID);   
+	
 	pAdv->setMinInterval(48); // was 160
 	pAdv->setMaxInterval(96); // was 320
 
@@ -1500,38 +1147,16 @@ void setup()
 }
 
 ////////////////////////////////////////////////////////////////////
-// Main firmware event pump. Runs as fast as possible and keeps all
-// time-based behaviour non-blocking (except for the 1s LED blink).
-//
-// Per-iteration tasks:
-//   1) pollResetButtonLongPress()
-//       - Check for a 3s long-press on BTN_PIN to trigger factoryReset().
-//
-//   2) flushHelloIfDue()
-//       - If a hello banner was scheduled on subscription, send it once
-//         the link is ready.
-//
-//   3) mtls_tick()
-//       - Drive B0 retry logic for the MTLS handshake until a session
-//         becomes active. 
-//
-//   4) LED / UI scheduling:
-//       - If g_blinkLedScheduled is set - perform a 1s red blink.
-//       - Else, if g_pinShowScheduled and encryption is still not up by
-//         g_pinDueAtMs - show the 6-digit pairing PIN on the TFT.
-//       - Else, if g_displayReadyScheduled - draw the READY UI.
-//       - Else - draw a small heartbeat dot in the top-right corner.
-//
-// BLE callbacks, MTLS, and the command dispatcher never block; all "slow"
-// user-visible effects are deferred into this loop via simple flags.
+// Main pump:
+// - long-press reset
+// - process queued RX frame
+// - mtls_tick() when notifications enabled
+// - LED/UI scheduled actions (blink, PIN, READY, heartbeat)
 ////////////////////////////////////////////////////////////////////
 void loop() 
 {
 	// check for factory reset
 	pollResetButtonLongPress();
-	
-	// just to notify on connect
-	flushHelloIfDue();
 
 	////////////////////
 	// :: moved from handleWrite
@@ -1572,6 +1197,16 @@ void loop()
         mtls_tick();    
     }	
 	
+	// When MTLS becomes active, move LED to green (only once)
+	static bool s_ledWasMtls = false;
+	const bool mtlsNow = mtls_isActive();
+	if( mtlsNow && !s_ledWasMtls )
+	{
+		setLED(CRGB(0, 255, 0));  // green = MTLS established
+		currentColor = CRGB(0, 255, 0);
+	}
+	s_ledWasMtls = mtlsNow;	
+	
 	// :: led cmds
 	if( g_blinkLedScheduled )
 	{
@@ -1599,6 +1234,7 @@ void loop()
 	// :: else draw heartbeat dot on the screen
 	} else
 	{
+#if !NO_DISPLAY		
 		// blink dot on screen every second - you can disable this if not needed
 		static uint32_t last = 0;
 		if( millis() - last > 1000 ) 
@@ -1609,5 +1245,6 @@ void loop()
 			tft.fillRect(tft.width()-10, 2, 6, 6, c);
 			on = !on;
 		}
+#endif		
 	}
 }

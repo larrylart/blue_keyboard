@@ -1,28 +1,24 @@
 ////////////////////////////////////////////////////////////////////
-// commands.h  —  Binary command + APPKEY + MTLS glue
+// commands.h — binary protocol dispatcher + APPKEY onboarding
 //
-// This module sits on top of the raw BLE byte stream and:
+// Wire format: [OP][LENle][PAYLOAD]
 //
-//   • Defines the "framed command" format:
-//        [OP][LENle][PAYLOAD]
-//   • Provides sendFrame(...) which either:
-//        - sends RAW over BLE (pre-MTLS), or
-//        - wraps inside an MTLS B3 record (post-handshake)
-//   • Handles APPKEY onboarding opcodes (0xA0, 0xA2, 0xA3)
-//   • Handles MTLS-protected application opcodes (C*/D*):
-//        - 0xC0 = SET_LAYOUT
-//        - 0xC1 = GET_INFO (request)
-//        - 0xC2 = INFO_VALUE (response)
-//        - 0xC4 = RESET_TO_DEFAULT
-//        - 0xD0 = SEND_STRING (UTF-8)
-//        - 0xD1 = SEND_RESULT (MD5 of typed string)
-//   • Exposes dispatch_binary_frame(...) which is called from the
-//     BLE receive path with a single framed message.
+// TX:
+//   sendFrame() builds the frame and sends it either:
+//     - RAW over BLE (pre-MTLS), or
+//     - inside MTLS B3 (post-handshake)
 //
-// The MTLS handshake itself (B0/B1/B2/B3) is implemented in mtls.cpp.
-// This file delegates to mtls_*() for KEYX/ENC handling when needed.
+// RX:
+//   dispatch_binary_frame() consumes one framed message from BLE.
+//   B1/B3 are handed to mtls.cpp (handshake / decrypt) and any decrypted
+//   inner frame is re-dispatched here.
 //
-// Created by: Larry Lart
+// Op groups:
+//   A*: AppKey onboarding (A0/A2/A3)   (pre-MTLS)
+//   C*/D*/E*: app commands             (require MTLS; E0 also needs rawFastMode)
+//
+// MTLS handshake/record layer lives in mtls.cpp.
+// Larry Lart
 ////////////////////////////////////////////////////////////////////
 #ifndef COMMANDS_H
 #define COMMANDS_H
@@ -45,30 +41,24 @@
 
 // locals
 #include "settings.h"
+#include "RawKeyboard.h"
 #include "layout_kb_profiles.h"   // for KeyboardLayout, layoutName, m_nKeyboardLayout
 
 extern RawKeyboard Keyboard;
 extern bool g_rawFastMode;   // defined in blue_keyboard.ino
 
-// -------------------------------------------------------------------
-// Low-level TX + MTLS primitives
-// -------------------------------------------------------------------
+// TX and UI hooks implemented in blue_keyboard.ino / mtls.cpp
 
-// Raw TX function implemented in blue_keyboard.ino.
-// Sends a single buffer over BLE (internally chunks to ATT_MTU as needed).
+// Raw BLE TX (chunks to MTU-3 internally)
 extern bool sendTX(const uint8_t* data, size_t len);
 
-// UI helper implemented in blue_keyboard.ino (blink + TFT)
+// UI helper: show LOCKED + blink
 extern void showLockedNeedsReset();
 
-// Used by APPKEY onboarding to send the one-time wrapped AppKey
-// back to the Android app (implemented in mtls.cpp)
+// APPKEY response: send opaque wrapped AppKey back to app
 extern bool sendWrappedAppKey(const uint8_t verif32[32], const uint8_t chal16[16]); // from mtls.cpp 
 
-// MTLS session helpers (implemented in mtls.cpp).
-//   - mtls_isActive()          : returns true once B0/B1/B2 completed
-//   - mtls_wrapAndSendBytes_B3 : encrypt + MAC an app frame as B3 and send
-//   - mtls_tryConsumeOrDecryptFromBinary : process inbound B1/B3 frames
+// MTLS helpers (mtls.cpp)
 extern bool mtls_isActive();
 extern bool mtls_wrapAndSendBytes_B3(const uint8_t* plain, size_t n);
 extern bool mtls_tryConsumeOrDecryptFromBinary(uint8_t op, const uint8_t* p, uint16_t n, std::vector<uint8_t>& outPlain);
@@ -76,23 +66,13 @@ extern bool mtls_tryConsumeOrDecryptFromBinary(uint8_t op, const uint8_t* p, uin
 // UI feedback when a string has been typed on the host
 extern void onStringTyped(size_t numBytes);
 
-// -------------------------------------------------------------------
-// APPKEY challenge state
-//
-// Used only for the APPKEY onboarding opcodes (0xA0, 0xA2, 0xA3).
-// The challenge is never written to NVS - stored in volatile/ram
-// -------------------------------------------------------------------
+// APPKEY onboarding (A0/A2/A3) state (RAM only; not persisted)
 static uint8_t g_appkey_chal[16];
 static bool    g_appkey_chal_pending = false;
 static uint16_t g_appkey_fail_count = 0;   // consecutive failed APPKEY proofs this boot
 static const uint16_t APPKEY_FAIL_LIMIT = 100; // 100 - should be reasonable enough
 
-// -------------------------------------------------------------------
-// HMAC-SHA256 helper
-//
-// Thin wrapper around mbedtls_md_hmac() to compute:
-//    out32 = HMAC(key, msg)
-// -------------------------------------------------------------------
+// out32 = HMAC-SHA256(key, msg)
 static bool hmac_sha256(const uint8_t* key, size_t keyLen,
                         const uint8_t* msg, size_t msgLen,
                         uint8_t out32[32])
@@ -104,22 +84,11 @@ static bool hmac_sha256(const uint8_t* key, size_t keyLen,
 	return( true );
 }
 
-// -------------------------------------------------------------------
-// Small binary helpers
-//
-// rd16le: read uint16 from little-endian byte buffer
-// wr16le: write uint16 to little-endian byte buffer (currently unused)
-// -------------------------------------------------------------------
+// Small binary helpers - no longer relevant?
 static inline uint16_t rd16le(const uint8_t* p){ return( (uint16_t)p[0] | ((uint16_t)p[1]<<8) ); }
 static inline void wr16le(uint8_t* p, uint16_t v){ p[0]=(uint8_t)(v&0xFF); p[1]=(uint8_t)(v>>8); }
 
-// -------------------------------------------------------------------
-// MD5 helper
-//
-// md5_of(buf,n) - out16
-// Used for the SEND_STRING (0xD0) - SEND_RESULT (0xD1) round-trip,
-// where the app gets an MD5 over the exact typed payload.
-// -------------------------------------------------------------------
+// MD5(payload) for SEND_RESULT (D1). Used as a lightweight “what was typed” checksum.
 static inline void md5_of( const uint8_t* buf, size_t n, uint8_t out16[16] )
 {
 	const mbedtls_md_info_t* md = mbedtls_md_info_from_type(MBEDTLS_MD_MD5);
@@ -135,15 +104,10 @@ static inline void md5_of( const uint8_t* buf, size_t n, uint8_t out16[16] )
 }
 
 ////////////////////////////////////////////////////////////////////
-// sendFrame(op, payload, n)
-//
-// Common framing helper used everywhere in this module:
-//   - Builds [OP][LENle][PAYLOAD]
-//   - If MTLS is active, wraps inside an encrypted B3 record.
-//   - Otherwise sends RAW over BLE.
-//
-// This is the *only* function that should construct framed messages
-// for the wire. All higher-level code just passes (op, payload,len).
+// sendFrame(op,payload,n)
+// Builds [OP][LENle][PAYLOAD] and sends:
+//   - MTLS active: wraps as B3
+//   - else: RAW over BLE
 ////////////////////////////////////////////////////////////////////
 static bool sendFrame( uint8_t op, const uint8_t* payload, uint16_t n )
 {
@@ -185,16 +149,7 @@ static inline bool sendTX( const char* s )
 }
 
 ////////////////////////////////////////////////////////////////////
-// setLayoutByName()
-//
-// Helper for opcode 0xC0 (SET_LAYOUT).
-// Accepts either:
-//   - "UK_WINLIN"
-//   - "LAYOUT_UK_WINLIN"
-//
-// On success:
-//   - updates m_nKeyboardLayout
-//   - persists to NVS via saveLayoutToNVS()
+// SET_LAYOUT (C0): accepts "UK_WINLIN" or "LAYOUT_UK_WINLIN", updates + persists.
 ////////////////////////////////////////////////////////////////////
 static inline bool setLayoutByName(const String& raw) 
 {
@@ -234,27 +189,12 @@ static inline bool setLayoutByName(const String& raw)
 }
 
 ////////////////////////////////////////////////////////////////////
-// handle_appkey_ops()
+// handle_appkey_ops(op,p,n)
 //
-// Handles APPKEY onboarding opcodes:
+// A0: issue KDF params + random challenge (reply A2)
+// A3: verify proof (HMAC over "APPKEY"||chal) and return wrapped AppKey
 //
-//   0xA0 = GET_APPKEY_REQUEST
-//          - checks if AppKey already set, and if not:
-//              - loads KDF params from NVS (salt/verif/iters)
-//              - generates random challenge
-//              - replies with A2: [salt16 | iters4 | chal16]
-//              - records chal in g_appkey_chal + sets g_appkey_chal_pending
-//
-//   0xA3 = APPKEY_PROOF
-//          - app sends MAC32 = HMAC(verif32, "APPKEY"||chal16)
-//              - verifies chal is pending and payload size == 32
-//              - recomputes expected MAC using stored verif32+chal16
-//              - if OK, calls sendWrappedAppKey() to send opaque A1:
-//                    cipher(AppKey) + MAC
-//              - clears chal + pending flag
-//
-// Any other opcode returns false so caller can handle it.
-// All APPKEY traffic is pre-MTLS (we do not require mtls_isActive()).
+// Runs pre-MTLS. Returns true if consumed.
 ////////////////////////////////////////////////////////////////////
 static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 {
@@ -291,14 +231,6 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 		  return( true );
 		}
 
-		// DEBUG: show KDF params from NVS
-//		DPRINT("[APPKEY][A0] salt=");
-//		for (int i=0;i<16;i++) DPRINT("%02x", (unsigned)salt16[i]);
-//		DPRINT(" iters=%u verif32[0..7]=", (unsigned)iters);
-//		for (int i=0;i<8;i++) DPRINT("%02x", (unsigned)verif32[i]);
-//		DPRINT("\n");
-
-
 		for( int i=0; i<16; i++ ) g_appkey_chal[i] = (uint8_t)esp_random();
 		g_appkey_chal_pending = true;
 
@@ -320,11 +252,6 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 	//      payload = MAC32 = HMAC(verif32, "APPKEY"||chal16)
 	if( op == 0xA3 )
 	{
-		/*// debug: show first 8 of incoming MAC
-		DPRINT("[APPKEY] got A3 mac32[0..8]=");
-		for( int i=0; i<8 && i<n; i++ ) DPRINT("%02x", p[i]);
-		DPRINT("\n");*/
-
 		 // Basic sanity: must have outstanding challenge and correct size
 		if( !g_appkey_chal_pending || n != 32 ) 
 		{
@@ -349,18 +276,6 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 		memcpy(msgbuf, "APPKEY", 6);
 		memcpy(msgbuf + 6, g_appkey_chal, 16);
 
-		/* DEBUG
-		// ---------- BEGIN VERY VERBOSE DEBUG ----------
-		DPRINT("[APPKEY][A3] chal16=");
-		for (int i=0; i<16; i++) DPRINT("%02x", (unsigned)g_appkey_chal[i]); DPRINT("\n");
-
-		DPRINT("[APPKEY][A3] msg(APPKEY||chal)[0..21]=");
-		for (int i=0; i<22; i++) DPRINT("%02x", (unsigned)msgbuf[i]); DPRINT("\n");
-
-		DPRINT("[APPKEY][A3] verif32(NVS)[0..7]=");
-		for (int i=0; i<8; i++) DPRINT("%02x", (unsigned)verif32[i]); DPRINT("\n");
-		// ---------- END VERY VERBOSE DEBUG ---------- */
-
 		uint8_t expect[32];
 		if( !hmac_sha256(verif32, 32, msgbuf, sizeof(msgbuf), expect) ) 
 		{
@@ -369,14 +284,6 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 			g_appkey_chal_pending = false;
 			return( true );
 		}
-
-		/* DEBUG
-		// More verbose
-		DPRINT("[APPKEY][A3] expect[0..7]=");
-		for (int i=0; i<8; i++) DPRINT("%02x", (unsigned)expect[i]); DPRINT("\n");
-		DPRINT("[APPKEY][A3] proof [0..7]=");
-		for (int i=0; i<8; i++) DPRINT("%02x", (unsigned)p[i]); DPRINT("\n");
-		*/
 
 		if( memcmp(expect, p, 32) != 0 ) 
 		{
@@ -413,34 +320,16 @@ static bool handle_appkey_ops(uint8_t op, const uint8_t* p, uint16_t n)
 }
 
 ////////////////////////////////////////////////////////////////////
-// handle_mtls_ops()
+// handle_mtls_ops(op,p,n)
 //
-// Handles application opcodes that MUST be run under MTLS,
-// i.e. only when mtls_isActive() == true.
+// Requires mtls_isActive().
+// C0: set layout
+// C1: get info (reply C2)
+// C4: clear AppKey/setup (factory-unlock)
+// D0: type UTF-8 string (reply D1 = status + MD5(payload))
+// C8: toggle raw fast mode
+// E0: raw key tap (only when raw fast mode enabled; no ACK)
 //
-//   0xC0 = SET_LAYOUT
-//          payload: ASCII "UK_WINLIN" or "LAYOUT_UK_WINLIN"
-//
-//   0xC1 = GET_INFO (request)
-//          payload: empty
-//          - replies 0xC2 with:
-//              "LAYOUT=<SHORT>; PROTO=<ver>; FW=<ver>"
-//
-//   0xC4 = RESET_TO_DEFAULT
-//          clears AppKey and setup flag in NVS
-//
-//   0xD0 = SEND_STRING
-//          payload: UTF-8 text to type as keystrokes
-//          - types via sendUnicodeAware()
-//          - replies 0xD1 with:
-//              [0x00 | md5(payload)]
-//
-//   0xC8 = SET_RAW_FAST_MODE
-//			Payload: 1 byte
-//			0x00 - disable raw mode
-//			0x01 - enable raw mode
-//
-// Any unrecognized opcode returns false (caller will handle).
 ////////////////////////////////////////////////////////////////////
 static bool handle_mtls_ops( uint8_t op, const uint8_t* p, uint16_t n )
 {
@@ -577,11 +466,28 @@ static bool handle_mtls_ops( uint8_t op, const uint8_t* p, uint16_t n )
 		uint8_t usage  = p[1];
 		uint8_t repeat = (n >= 3 && p[2] != 0) ? p[2] : 1;
 
-		// Very tight loop: just blast usages via RawKeyboard::sendRaw()
-		for( uint8_t i = 0; i < repeat; ++i )
+		// by layout type:
+		//  - If a TV layout is selected (layout id >= BK_TV_LAYOUT_BASE), remap the
+		//    standard consumer usage bytes to the TV's expected mapping.
+		//  - Some TV mappings may require sending a *keyboard* usage (e.g. Samsung
+		//    volume uses F8/F9/F10), which is supported via TvMediaRemap.
+		if( mods == 0x00 && isTvLayout(m_nKeyboardLayout) && RawKeyboard::isConsumerUsage(usage) )
 		{
-			// press+release with tiny delays 
-			Keyboard.sendRaw(mods, usage);  
+			TvMediaRemap r = remapConsumerForTv(m_nKeyboardLayout, usage);
+			for( uint8_t i = 0; i < repeat; ++i )
+			{
+				// If asKeyboard=true, r.usage is a keyboard HID usage (F8/F9/F10...).
+				// If asKeyboard=false, r.usage is a consumer low byte (0xCD/0xB7/0xE9...).
+				Keyboard.sendRaw(0x00, r.usage);
+			}
+		}
+		else
+		{
+			// Normal raw keyboard usage path (also handles consumer usages automatically when mods==0)
+			for( uint8_t i = 0; i < repeat; ++i )
+			{
+				Keyboard.sendRaw(mods, usage);
+			}
 		}
 
 		// NOTE: no ACK (no sendFrame back), no MD5, no UI update.
@@ -594,31 +500,15 @@ static bool handle_mtls_ops( uint8_t op, const uint8_t* p, uint16_t n )
 }
 
 ////////////////////////////////////////////////////////////////////
-// dispatch_binary_frame()
+// dispatch_binary_frame(buf,len)
 //
-// Top-level binary dispatcher for ONE incoming frame from BLE.
+// Consumes one framed message: [OP][LENle][PAYLOAD].
 //
-// Input buffer has the form:
-//   [OP][LENle][PAYLOAD]
+// - B1/B3: hand to mtls.cpp; if B3 decrypts an inner frame, re-dispatch it.
+// - Pre-MTLS: only APPKEY ops (A0/A2/A3).
+// - Post-MTLS: handle app ops (C*/D*/E*).
 //
-// Dispatch strategy:
-//
-//   1) If OP is B1 or B3:
-//        - call mtls_tryConsumeOrDecryptFromBinary()
-//        - if it returns true and produces an inner frame (B3 case),
-//          recursively feed that inner frame back here.
-//        - this is how encrypted app frames get re-dispatched.
-//
-//   2) If MTLS is NOT active:
-//        - allow only APPKEY onboarding opcodes via handle_appkey_ops()
-//        - any other opcode - error "need MTLS"
-//
-//   3) If MTLS IS active:
-//        - handle MTLS-protected app opcodes via handle_mtls_ops()
-//        - anything else - "bad op"
-//
-// Returns true if the frame was consumed (handled or errored).
-// Returns false only on obvious framing errors (too short, length mismatch).
+// Returns true if handled (including errors).
 ////////////////////////////////////////////////////////////////////
 static bool dispatch_binary_frame( const uint8_t* buf, size_t len )
 {

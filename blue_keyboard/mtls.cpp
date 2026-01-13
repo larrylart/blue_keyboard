@@ -1,39 +1,40 @@
 ////////////////////////////////////////////////////////////////////
-// mtls.cpp  —  "micro-TLS v1" for the BlueKeyboard dongle
+// mtls.cpp  —  "micro-TLS v1.3" for the BlueKeyboard dongle
 //
-// This module implements an application-level secure channel on top
-// of the BLE byte stream. The protocol is binary and uses these
-// top-level opcodes:
+// Implements an app-level secure channel over the raw BLE byte stream.
+// Top-level opcodes:
 //
-//   B0  = server → client  : HELLO
-//         payload = srvPub65 (P-256, uncompressed) || sid4 (LE)
+//   B0  = dongle -> client : HELLO
+//         payload = srvPub65 (P-256, uncompressed) || sid4 (BE)
 //
-//   B1  = client → server  : KEYX
+//   B1  = client -> dongle : KEYX
 //         payload = cliPub65 || mac16
 //         mac16 = HMAC(AppKey32, "KEYX"||sid4||srvPub65||cliPub65)[0..15]
 //
-//   B2  = server → client  : SFIN (server finished)
+//   B2  = dongle -> client : SFIN (server finished)
 //         payload = mac16
-//         mac16 = HMAC(sessKey32, "SFIN"||sid4||srvPub65||cliPub65)[0..15]
+//         mac16 = HMAC(K_mac, "SFIN"||sid4||srvPub65||cliPub65)[0..15]
 //
-//   B3  = encrypted record (both directions, once MTLS is active)
-//         payload = seq2 || clen2 || cipher[clen] || mac16
-//         iv16   = HMAC(sessKey32, "IV"||sid4||dir||seq)[0..15]
-//         mac16  = HMAC(sessKey32, "ENCM"||sid4||dir||seq||cipher)[0..15]
-//         dir    = 'C' for client→dongle, 'S' for dongle→client
+//   B3  = encrypted record (both directions, once active)
+//         payload = seq2(BE) || clen2(BE) || cipher[clen] || mac16
+//         iv16  = HMAC(K_iv,  "IV1" ||sid4||dir||seq2)[0..15]
+//         mac16 = HMAC(K_mac, "ENCM"||sid4||dir||seq2||cipher)[0..15]
+//         dir   = 'C' client→dongle, 'S' dongle→client
 //
-// Session key derivation:
+// Session keys:
 //
-//   1.  Z = ECDH(srvPriv, cliPub)    // P-256 shared secret (32 bytes)
-//   2.  info = "MT1" || sid4 || srvPub65 || cliPub65
-//   3.  sessKey32 = HKDF-SHA256(salt=AppKey32, ikm=Z, info)
+//   Z = ECDH(srvPriv, cliPub)                     // 32 bytes
+//   info = "MT1" || sid4(BE) || srvPub65 || cliPub65
+//   sessKey32 = HKDF-SHA256(salt=AppKey32, ikm=Z, info)
 //
-// So the AppKey from NVS acts as the long-term PSK, and each ECDH
-// handshake gives a fresh sessKey32 with forward secrecy.
+// Per-purpose keys (derived once per handshake):
+//   K_enc = HMAC(sessKey32, "ENC")
+//   K_mac = HMAC(sessKey32, "MAC")
+//   K_iv  = HMAC(sessKey32, "IVK")
 //
-// Once s_active==true, all outbound application frames are wrapped
-// via mtls_wrapAndSendBytes_B3() and all inbound B3 records are
-// verified/decrypted via mtls_tryConsumeOrDecryptFromBinary().
+// Once s_active==true, outbound app frames are wrapped via
+// mtls_wrapAndSendBytes_B3(), and inbound B1/B3 are handled via
+// mtls_tryConsumeOrDecryptFromBinary().
 //
 // Created by: Larry Lart
 ////////////////////////////////////////////////////////////////////
@@ -221,9 +222,11 @@ extern "C" void mtls_onDisconnect()
 ////////////////////////////////////////////////////////////////////
 static void mtls_dropSessionAndRequireHandshake(const char* why)
 {
-    if (why) {
+    if( why ) 
+	{
         DPRINT("[MTLS] DROP+REHS: %s\n", why);
-    } else {
+    } else 
+	{
         DPRINTLN("[MTLS] DROP+REHS");
     }
 
@@ -240,9 +243,7 @@ static void mtls_dropSessionAndRequireHandshake(const char* why)
     s_b2SendAtMs = 0;
     memset(s_b2Mac, 0, sizeof(s_b2Mac));
 
-    // Kick off a fresh HELLO soon (mtls_tick will send cached B0)
-    // NOTE: mtls_sendHello_B0 caches s_lastB0 and relies on mtls_tick to send.
-    // If link isn't ready, retries will handle it.
+	// Schedule a fresh HELLO (B0) via mtls_sendHello_B0() - mtls_tick() will transmit.
     (void)mtls_sendHello_B0();
 }
 
@@ -270,13 +271,11 @@ static void ensureGroupInit()
 	
 	inited=true;
 }
-
 ////////////////////////////////////////////////////////////////////
-// Generate a fresh ephemeral keypair on P-256.
+// Generate a fresh ephemeral P-256 keypair.
 //  - writes private to s_priv, public to s_pub
-//  - returns public key as 65-byte uncompressed hex string in pubHex (for debug)
+//  - public key is later exported as 65-byte uncompressed (0x04||X||Y)
 ////////////////////////////////////////////////////////////////////
-//static bool genKeypair( String& pubHex )
 static bool genKeypair()
 {
 	ensureGroupInit();
@@ -407,11 +406,11 @@ static bool ct_eq16(const uint8_t a[16], const uint8_t b[16])
 }
 
 ////////////////////////////////////////////////////////////////////
-// Derive IV for AES-CTR:
+// Derive AES-CTR IV:
+//   iv16 = HMAC(K_iv, "IV1"||sid4||dir||seq2)[0..15]
 //
-//   iv16 = HMAC(sessKey, "IV"||sid||dir||seq)[0..15]
-//
-// dir = 'C' (client→server) or 'S' (server→client).
+// sid4 and seq2 are encoded big-endian in the MAC/IV transcript.
+// dir = 'C' (client→dongle) or 'S' (dongle→client).
 ////////////////////////////////////////////////////////////////////
 static void ivFrom(uint8_t dir, uint16_t seq, uint8_t iv16[16])
 {
@@ -469,13 +468,13 @@ static bool get_srv_pub65(uint8_t out65[65])
 ////////////////////////////////////////////////////////////////////
 // mtls_sendHello_B0()
 //
-// Entry point for starting an MTLS handshake.
+// Starts a handshake by generating a fresh sid + ephemeral P-256 keypair,
+// then caching a B0 payload for retransmit by mtls_tick().
 //
-//  - Requires that an AppKey is already provisioned in NVS.
-//  - Generates a fresh session id (sid) and ephemeral P-256 keypair.
-//  - Builds B0 payload = srvPub65 || sidLE4.
-//  - Caches B0 in s_lastB0 so mtls_tick() can retry a few times.
-//  - Sends B0 via sendFrame(0xB0, ...).
+// - B0 payload = srvPub65 || sid4(BE)
+// - B0 is not sent immediately here; mtls_tick() performs the actual send.
+// - We still advertise B0 even if AppKey is not yet provisioned. clients
+//   without the key can't complete B1 and should fall back to A* provisioning.
 ////////////////////////////////////////////////////////////////////
 bool mtls_sendHello_B0()
 {
@@ -520,7 +519,7 @@ bool mtls_sendHello_B0()
 	s_b0Retries  = 0;
 	s_b0NextAtMs = millis() + 1;   // first retry after 300 ms - increased
 
-	// top-level send via your binary framing (sendFrame in commands.h will pick MTLS path only after active)
+	// top-level send via binary framing (sendFrame in commands.h will pick MTLS path only after active)
 	// commented this out here so it will run on a ticker instead
 	//bool ok = sendFrame(0xB0, pay, sizeof(pay));
 	//DPRINT("[MTLS][B0] sendHello -> %s (sid=0x%08x)\n", ok?"OK":"FAIL", (unsigned)s_sid);
@@ -532,12 +531,13 @@ bool mtls_sendHello_B0()
 ////////////////////////////////////////////////////////////////////
 // mtls_tick()
 //
-// Called periodically from loop(). Responsible for retransmitting
-// B0 while we are waiting for the client to respond with B1.
+// Called from loop(). Handles:
+//   - delayed B2 send (workaround for notify timing), then activates session
+//   - B0 retransmits while waiting for B1
 //
-//  - If MTLS is already active or there is no cached B0, do nothing.
-//  - Otherwise retry B0 up to 10 times, approx every 300 ms.
-//  - After 10 retries we give up and drop the cached B0.
+// Retries:
+//   - up to RETRY_MAX attempts (currently 6)
+//   - retry delay increases by RETRY_GAP_MS * retryCount (simple backoff)
 ////////////////////////////////////////////////////////////////////
 void mtls_tick()
 {
@@ -721,24 +721,6 @@ bool mtls_tryConsumeOrDecryptFromBinary( uint8_t op, const uint8_t* p, uint16_t 
 			sendFrame(0xFF,(const uint8_t*)e,strlen(e)); 
 			return true; 
 		}
-
-		/* old not delayed
-		// Reply B2 with "SFIN" MAC under sessKey32
-		uint8_t macS[16]; 
-		make_sfin_mac(macS, cliPub);
-		sendFrame(0xB2, macS, 16);
-
-		// Mark session as active and reset seq counters
-		s_active = true; 
-		s_seqIn = s_seqOut = 0;
-
-		// Stop any B0 retransmits now that handshake progressed
-		s_lastB0.clear();
-		s_b0Retries = 0;
-		s_b0NextAtMs = 0;
-
-		DPRINTLN("[MTLS] ACTIVE (binary)");
-		*/
 		
 		// if we got here stop sending B0
 		// Stop any B0 retransmits now that handshake progressed

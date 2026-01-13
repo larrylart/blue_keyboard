@@ -16,7 +16,7 @@ public:
 	//               bit4 RCtrl, bit5 RShift, bit6 RAlt (AltGr), bit7 RGUI
 	void sendRaw(uint8_t mods, uint8_t usage) 
 	{
-		// --- NEW: check if this usage should be sent as Consumer Control ---
+		// -check if this usage should be sent as Consumer Control
 		// We only treat it as media if there are *no* modifiers.
 		if (mods == 0 && isConsumerUsage(usage)) {
 			sendConsumerUsage(usage);
@@ -41,11 +41,10 @@ public:
 	inline void altGrUsage(uint8_t usage)          { sendRaw(0x40, usage); } // Right Alt
 	inline void chord(uint8_t mods, uint8_t usage) { sendRaw(mods, usage);   }
 
-private:
 	// --- NEW: classify media usage IDs coming from Android fast-keys ---
-	inline bool isConsumerUsage(uint8_t usage) const
+	static inline bool isConsumerUsage(uint8_t usage)
 	{
-		// Standard HID Consumer Control usages we mapped on Android:
+		// Standard HID Consumer Control usages we mapped in the apps
 		// Play/Pause: 0xCD
 		// Stop:       0xB7
 		// Next:       0xB5
@@ -70,13 +69,14 @@ private:
 				return false;
 		}
 	}
-
-	// delegate to core's USBHIDConsumerControl device ---
+	
+private:
+	// delegate to core's USBHIDConsumerControl device
 	void sendConsumerUsage(uint8_t usage) const
 	{
 		// The ESP32 core's USBHIDConsumerControl uses 16-bit usages.
-		// Your Android side already sends the low byte (0xCD, 0xB5, 0xE9, etc.),
-		// which matches the constants defined in USBHIDConsumerControl.h.
+		// App sends the low byte (0xCD, 0xB5, 0xE9, etc.),
+		// matches the constants defined in USBHIDConsumerControl.h
 		MediaControl.press(static_cast<uint16_t>(usage));
 		MediaControl.release();
 	}

@@ -8,10 +8,30 @@
 // esp_read_mac, ESP_MAC_BT 
 #include <esp_mac.h>  
 
+/////////
+// Board models - use in pin config etc
+#define BLUKEY_BOARD_LILYGO_TDONGLE_S3   				1 // current default LilyGO (TFT + APA102 pins etc)
+#define BLUKEY_BOARD_ESP32S3_ZERO	  	 				2 // headless variant waveshare (no TFT)
+#define BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147		3 // Waveshare ESP32-S3 1.47" Display 
+// define board to create frimware for
+#define BLUKEY_BOARD BLUKEY_BOARD_LILYGO_TDONGLE_S3
+
+// -----------------------------------------------------------------------------
+// Build-time feature flags
+// -----------------------------------------------------------------------------
+// Set to 1 for dongles without TFT/LCD display.
+// You can also override this from the build system with -DNO_DISPLAY=1
+#ifndef NO_DISPLAY
+#define NO_DISPLAY 0
+#endif
+// also led
+#ifndef NO_LED
+#define NO_LED 0
+#endif
 
 // Protocol / firmware identifiers 
-#define PROTO_VER "2.0"
-#define FW_VER    "1.4.0"
+#define PROTO_VER "1.6"
+#define FW_VER    "2.1.0"
 
 /////////////////////////////
 // *** DEBUG ***
@@ -296,7 +316,7 @@ static inline String computeDefaultBleName()
 	esp_read_mac(mac, ESP_MAC_BT);
 
 	char buf[32];
-	// Use last two bytes for compact ID (same style as your AP SSID)
+	// Use last two bytes for compact ID 
 	snprintf(buf, sizeof(buf), "BluKbd_%02X%02X", mac[4], mac[5]);
 	
 	return( String(buf) );

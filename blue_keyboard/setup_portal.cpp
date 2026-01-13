@@ -10,9 +10,15 @@
 // The setup password is never stored in clear. A PBKDF2-HMAC-SHA256
 // verifier and salt are stored instead and used later during the
 // first MTLS key provisioning from the app.
+// note: for non screen dongles, wifi ap is hard coded and the portal 
+// will allow the user to set a pairing pin.
 ////////////////////////////////////////////////////////////////////
 #include <Arduino.h>
+
+#if !NO_DISPLAY
 #include "TFT_eSPI.h" 
+#endif
+
 #include <WiFi.h>
 
 #include <FS.h>
@@ -64,9 +70,14 @@ static void displaySetupInfo(const char* ssid, const char* psk)
 ////////////////////////////////////////////////////////////////////
 static inline void showPassword(const char* _psk) 
 {
+#if NO_DISPLAY
+    (void)_psk;
+    // No screen: password is printed via Serial in displaySetupInfo()
+#else	
 	char buf[12];
 	snprintf(buf, sizeof(buf), "%s", _psk);
 	displayStatus(buf, TFT_BLUE, /*big*/ true);
+#endif	
 }
 
 ////////////////////////////////////////////////////////////////////
@@ -166,17 +177,26 @@ static String renderForm(const String& err = "")
 		  "<input id='ble' name='ble' maxlength='24' required placeholder='BlueKeyboard_XXXX' value='");
 	html += currName;
 	html += F("'>"
-		"<div class='hint'>Appears during Bluetooth discovery.</div>"
+		"<div class='hint'>Appears during Bluetooth discovery.</div>"		
+#if NO_DISPLAY
+	"<label for='pin'>Pairing PIN (6 digits)</label>"
+	"<input id='pin' name='pin' inputmode='numeric' pattern='[0-9]{6}' maxlength='6' minlength='6' "
+	"required placeholder='123456'>"
+	"<div class='hint'>Used for Bluetooth pairing on headless boards. Exactly 6 digits.</div>"
+#endif		
 		"<label for='layout'>Keyboard Layout</label>"
 		"<select id='layout' name='layout' required>");
 
-	for( int i = 1; i <= 100; ++i ) 
+	//for( int i = 1; i <= 1000; ++i ) 
+	for( uint8_t i = 1; i < (uint8_t)KeyboardLayout::_END_INDEX; ++i )
 	{
 		KeyboardLayout id = static_cast<KeyboardLayout>(i);
+		
 		const char* name = layoutName(id);
 		if (!name || !*name) continue;
+		
 		html += "<option value='"; html += String(i); html += "'";
-		if (id == currLayout) html += " selected";
+		if( id == currLayout ) html += " selected";
 		html += ">"; html += name; html += "</option>";
 	}
 
@@ -244,6 +264,11 @@ static void startApWithRandomPsk(String& outSsid, String& outPsk)
 	uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
 	char ssid[20]; snprintf(ssid, sizeof(ssid), "BLUKBD-%02X%02X", mac[4], mac[5]);
 
+#if NO_DISPLAY
+	// Headless builds: fixed WPA2 PSK (>= 8 chars)
+	const char* fixedPsk = "b1uk3b0rd";
+	outPsk = fixedPsk;
+#else
 	// Generate an 8-character alphanumeric PSK (A–Z, a–z, 0–9)
 	char psk[9] = {0};
 	static const char chars[] =
@@ -257,8 +282,10 @@ static void startApWithRandomPsk(String& outSsid, String& outPsk)
 		psk[i] = chars[r];
 	}
 
-	outSsid = ssid;
 	outPsk  = psk;
+#endif
+
+	outSsid = ssid;
 
 	WiFi.mode(WIFI_AP);
 	// Important: set a known AP IP so we can DNS-redirect to it
@@ -274,7 +301,9 @@ static void startApWithRandomPsk(String& outSsid, String& outPsk)
 	{
 	  if (event == ARDUINO_EVENT_WIFI_AP_STACONNECTED) 
 	  {
+#if !NO_DISPLAY		  
 		displayStatus("192.168.4.1", TFT_BLUE, true);
+#endif		
 		DPRINTLN("Client connected to AP - displaying IP 192.168.4.1");
 	  }
 	});	
@@ -331,6 +360,9 @@ bool runSetupPortal()
 		String pw1 = server.hasArg("pw1") ? server.arg("pw1") : "";
 		String pw2 = server.hasArg("pw2") ? server.arg("pw2") : "";
 		String layoutStr = server.hasArg("layout") ? server.arg("layout") : "";
+#if NO_DISPLAY
+		String pinStr = server.hasArg("pin") ? server.arg("pin") : "";
+#endif				
 		bool allowMultiApp = server.hasArg("multiApp");
 		bool allowMultiDev = server.hasArg("multiDev");
 		
@@ -350,6 +382,34 @@ bool runSetupPortal()
 		  server.send(400, "text/html", renderForm("Please choose a layout."));
 		  return;
 		}
+
+#if NO_DISPLAY
+		// PIN must be exactly 6 digits
+		if( pinStr.length() != 6 )
+		{
+			server.send(400, "text/html", renderForm("Pairing PIN must be exactly 6 digits."));
+			return;
+		}
+		for( size_t i = 0; i < pinStr.length(); ++i )
+		{
+			char c = pinStr[i];
+			if( c < '0' || c > '9' )
+			{
+				server.send(400, "text/html", renderForm("Pairing PIN must contain digits only (0–9)."));
+				return;
+			}
+		}
+		uint32_t pin = (uint32_t)pinStr.toInt();
+		if( pin < 100000UL || pin > 999999UL )
+		{
+			server.send(400, "text/html", renderForm("Pairing PIN must be between 100000 and 999999."));
+			return;
+		}
+
+		// Persist BLE passkey to NVS (settings.h owns the Preferences namespace)
+		ensurePrefsOpenRW();
+		gPrefs.putUInt(NVS_KEY_BLE_PASSKEY, pin);
+#endif
 
 		// Parse layout ID
 		int layoutInt = layoutStr.toInt();
