@@ -1,6 +1,6 @@
 # ESP32-S3 Password/Keyboard Input Dongle (USB HID)
 
-> 🆕 **Latest Release – v2.0.1**  
+> 🆕 **Latest Release – v2.1.0**  
 > BLE connectivity improvements, support for additional ESP32-S3 boards (including no-display variants),
 > and a restructured keyboard layout system to make localization easier.  
 > See [**CHANGELOG.md**](CHANGELOG.md) for full details.
@@ -19,7 +19,7 @@ It works as a **USB HID keyboard emulator** running on ESP32-S3–based dongles 
 ⚠️ **Disclaimer:** This project is experimental. While basic testing has been done, bugs or quirks are likely. Contributions and improvements are welcome.
 
 ---
-## 🔧 Installation & First-Time Setup (v1.2.1+)
+## 🔧 Installation & First-Time Setup
 
 Quick overview:
 - Download the firmware for your specific board / dongle

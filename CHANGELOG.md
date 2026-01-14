@@ -1,3 +1,48 @@
+## 🔄 Update **v2.1.0** (Latest)
+
+### ✨ New & Improved
+- **Expanded ESP32-S3 hardware support**  
+  Added support for additional ESP32-S3 boards, including compact USB-C devices and
+  boards without a display.
+
+- **Support for no-display (“dark mode”) boards**  
+  The firmware can now run on ESP32-S3 hardware without a screen or LED, enabling use
+  on minimal or embedded devices.
+
+- **Keyboard layout system restructured**  
+  Internal keyboard layout handling was refactored to make localization easier and
+  improve long-term maintainability.
+
+- **Improved BLE reliability**  
+  Further improvements to BLE connectivity and stability, reducing edge-case failures
+  during connect, pairing, and provisioning.
+
+### 🛠️ Firmware Artifacts (v2.1.0)
+
+Precompiled firmware is provided for the following boards:
+
+- **LilyGO S3 T-Dongle (with screen)**  
+  `bluekb_firmware_v2.1.0_esp32s3_lilygo_tdongle.bin`
+
+- **LilyGO S3 T-Dongle (no screen / dark mode)**  
+  `bluekb_firmware_v2.1.0_esp32s3_lilygo_tdongle_nolcd.bin`
+
+- **Waveshare ESP32-S3 Zero**  
+  `bluekb_firmware_v2.1.0_esp32s3_waveshare_zero.bin`
+
+- **Seeed Studio XIAO ESP32-S3**  
+  `bluekb_firmware_v2.1.0_esp32s3_seeed_studio_xiao.bin`
+
+- **Seeed Studio XIAO ESP32-S3 Plus**  
+  `bluekb_firmware_v2.1.0_esp32s3_xiao_plus.bin`
+
+- **Generic ESP32-S3 (no display / no LED)**  
+  `bluekb_firmware_v2.1.0_esp32s3_generic_dark.bin`
+
+> **Note:**  
+> Boards without a display use the generic or board-specific *dark* firmware and follow
+> the same setup flow, with minor differences documented in `docs/setup.md`.
+
 ### 🔄 Update **v2.0.0** 
 - mTLS provisioning simplified. Change is not backwards compatible, make sure you use the latest client apps for this to work.
 - fixes some mTLS protocol inconsistences
