@@ -47,6 +47,12 @@
 #define BTN_PIN     	0
 #define LED_DI_PIN     21
 
+// Seeed Studio XIAO ESP32S3 Plus
+#elif (BLUKEY_BOARD == BLUKEY_BOARD_ESP32S3_XIAO_PLUS)
+
+#define BTN_PIN     	0
+#define LED_DI_PIN     21
+
 // Unknown model: fall back to current/default mapping (lilygo t-dongle)
 // probably need to tidy up this
 #else

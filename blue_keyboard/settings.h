@@ -13,6 +13,7 @@
 #define BLUKEY_BOARD_LILYGO_TDONGLE_S3   				1 // current default LilyGO (TFT + APA102 pins etc)
 #define BLUKEY_BOARD_ESP32S3_ZERO	  	 				2 // headless variant waveshare (no TFT)
 #define BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147		3 // Waveshare ESP32-S3 1.47" Display 
+#define BLUKEY_BOARD_ESP32S3_XIAO_PLUS					4 // Seeed Studio XIAO ESP32S3 Plus
 // define board to create frimware for
 #define BLUKEY_BOARD BLUKEY_BOARD_LILYGO_TDONGLE_S3
 
@@ -28,6 +29,11 @@
 #ifndef NO_LED
 #define NO_LED 0
 #endif
+// Rgb led
+#ifndef NO_RGB_LED
+#define NO_RGB_LED 0
+#endif
+
 
 // Protocol / firmware identifiers 
 #define PROTO_VER "1.6"

@@ -23,7 +23,7 @@ extern "C"
   #include "host/ble_store.h"
 }
 
-#if !NO_LED	
+#if !NO_LED	&& !NO_RGB_LED
 #include <FastLED.h>
 #endif
 
@@ -160,9 +160,18 @@ bool isLinkSecure(){ return g_linkEncrypted && g_linkAuthenticated; }
 ////////////////////////////////////////////////////////////////////
 static inline void setLED(const CRGB& c) 
 {
-	led[0] = c;
-#if !NO_LED	
-	FastLED.show();
+#if !NO_LED	&& NO_RGB_LED
+
+// Map any non-black color to "ON".
+const bool on = (c.r | c.g | c.b) != 0;
+digitalWrite(LED_DI_PIN, on ? LOW : HIGH);
+
+#else	
+		led[0] = c;
+	#if !NO_LED	
+		FastLED.show();
+	#endif
+
 #endif
 
 }
@@ -173,6 +182,16 @@ static inline void setLED(const CRGB& c)
 ////////////////////////////////////////////////////////////////////
 void blinkLed() 
 {
+#if !NO_LED	&& NO_RGB_LED	
+	
+    // Blink = turn LED on briefly then restore "currentColor"
+    digitalWrite(LED_DI_PIN, LOW);   // ON (active-low)
+    delay(80);
+    const bool restoreOn = (currentColor.r | currentColor.g | currentColor.b) != 0;
+    digitalWrite(LED_DI_PIN, restoreOn ? LOW : HIGH);
+	
+#else
+	
 	led[0] = CRGB::Red;
 #if !NO_LED		
 	FastLED.show();
@@ -183,6 +202,8 @@ void blinkLed()
 	led[0] = currentColor;
 #if !NO_LED		
 	FastLED.show();
+#endif
+
 #endif
 }
 
@@ -940,6 +961,10 @@ void setup()
 	FastLED.addLeds<WS2812B, LED_DI_PIN, RGB>(led, 1);
 #elif (BLUKEY_BOARD == BLUKEY_BOARD_ESP32S3_ZERO)
 	FastLED.addLeds<WS2812B, LED_DI_PIN, GRB>(led, 1);
+#elif (BLUKEY_BOARD == BLUKEY_BOARD_ESP32S3_XIAO_PLUS)
+    // XIAO user LED use Arduino core LED_BUILTIN, active-low (HIGH=off)
+    pinMode(LED_DI_PIN, OUTPUT);
+    digitalWrite(LED_DI_PIN, HIGH); // OFF
 #endif
 
 	setLED(CRGB::Black);
