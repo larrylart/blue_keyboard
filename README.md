@@ -3,7 +3,7 @@
 > 🆕 **Latest Release – v2.0.1**  
 > BLE connectivity improvements, support for additional ESP32-S3 boards (including no-display variants),
 > and a restructured keyboard layout system to make localization easier.  
-> See [**CHANGELOG.md**](doc/CHANGELOG.md) for full details.
+> See [**CHANGELOG.md**](CHANGELOG.md) for full details.
 
 ## Overview
 
@@ -27,7 +27,7 @@ Quick overview:
 - Complete the initial device setup
 - Pair and provision the dongle with the BluKeyborg app
 
-For first-time setup and provisioning, see: [**SETUP.md**](doc/SETUP.md)
+For first-time setup and provisioning, see: [**SETUP.md**](SETUP.md)
 
 ---
 
@@ -77,14 +77,14 @@ Blue Keyboard / BluKeyborg runs on a range of **ESP32-S3 USB dongles and boards*
 
 The **primary reference and development platform** is the **LilyGO S3 T-Dongle (with screen)**, but other ESP32-S3 boards are also supported.
 
-For the complete, up-to-date list of supported hardware (including no-display and USB-C variants), see: [**HARDWARE_SUPPORTED.md**](doc/HARDWARE_SUPPORTED.md)
+For the complete, up-to-date list of supported hardware (including no-display and USB-C variants), see: [**HARDWARE_SUPPORTED.md**](HARDWARE_SUPPORTED.md)
 
 ![LilyGO S3 T-Dongle](doc/lilygo_usb_s3_dongle_.jpg)
 ---
 
 ## How It Works
 
-A high-level overview of the BLE → mTLS → USB HID pipeline is available here: [**HOW_IT_WORKS.md**](doc/HOW_IT_WORKS.md)
+A high-level overview of the BLE → mTLS → USB HID pipeline is available here: [**HOW_IT_WORKS.md**](HOW_IT_WORKS.md)
 
 ---
 
@@ -92,13 +92,13 @@ A high-level overview of the BLE → mTLS → USB HID pipeline is available here
 
 This project uses a layered security model (BLE bonding + application-level mTLS).
 
-For details on the threat model, AppKey onboarding, and the mTLS protocol: [**SECURITY_OVERVIEW.md**](doc/SECURITY_OVERVIEW.md)
+For details on the threat model, AppKey onboarding, and the mTLS protocol: [**SECURITY_OVERVIEW.md**](SECURITY_OVERVIEW.md)
 
 ---
 
 ## Development
 
-Build instructions and development notes: [**DEVELOPMENT_HOWTO.md**](doc/DEVELOPMENT_HOWTO.md)
+Build instructions and development notes: [**DEVELOPMENT_HOWTO.md**](DEVELOPMENT_HOWTO.md)
 
 
 ## Roadmap / To Do
