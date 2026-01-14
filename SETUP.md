@@ -49,7 +49,7 @@ Wi-Fi configuration portal:
   Shows a **random AP password** on the TFT screen  
   *(Unplugging and plugging the dongle again generates a new password.)*
 - **Dongles without display:**  
-  Uses a **fixed Wi-Fi password**: **b1uk3b0rd**
+  Uses this **fixed Wi-Fi password**: **b1uk3b0rd** <br>
   This is intentional compromise, as Wi-Fi AP mode is only active briefly during setup and is
   typically done in a private environment. The security exposure is negligible.  
 - Starts a small HTTP server + DNS captive portal at **`192.168.4.1`**
@@ -164,5 +164,4 @@ Manually open http://192.168.4.1 after joining the Wi-Fi AP **`BLUKBD-XXXX`**.
 
 ### Can’t see the AP network
 - Ensure the dongle is in setup mode (factory reset if unsure)
-- Try another USB power source or cable
 - Move closer to the dongle / reduce Wi-Fi congestion
