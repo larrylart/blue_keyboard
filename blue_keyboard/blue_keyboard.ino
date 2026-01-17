@@ -37,7 +37,8 @@ extern "C"
 
 // case for no display dongle
 #if !NO_DISPLAY
-#include "TFT_eSPI.h" 
+#include "TFT_eSPI.h"
+//#include <SPI.h>
 #endif
 
 
@@ -973,14 +974,29 @@ void setup()
 	pinMode(TFT_LEDA_PIN, OUTPUT);
 	tft.init();
 	tft.setSwapBytes(true);
-	tft.setRotation(1);
+	
+	#if (BLUKEY_BOARD == BLUKEY_BOARD_LILYGO_S3_TQT) || !defined(BLUKEY_BOARD)
+		tft.setRotation(3); // landscape +180 
+	#else
+		tft.setRotation(1); // landscape
+	#endif	
+	
 	tft.fillScreen(TFT_BLACK);
+	
 #if (BLUKEY_BOARD == BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147)	
 	digitalWrite(TFT_LEDA_PIN, 1);
 #else
 	digitalWrite(TFT_LEDA_PIN, 0);
 #endif	
-	drawReady();
+
+	if( isSetupDone() ) 
+	{
+		drawReady();
+	} else 
+	{
+		displayStatus("SETUP", TFT_BLUE, true);
+	}
+	
 #endif
 
 	// load prefs from persisten storage

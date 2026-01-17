@@ -28,6 +28,18 @@
 #define SD_MMC_CLK_PIN 12
 #define SD_MMC_CMD_PIN 16
 
+// LIlyGO T-QT ESP32S3 - GC9107 LCD
+#elif (BLUKEY_BOARD == BLUKEY_BOARD_LILYGO_S3_TQT) || !defined(BLUKEY_BOARD)
+
+#define BTN_PIN     47
+
+#define TFT_CS_PIN     5    // LCD_CS  IO05
+#define TFT_SDA_PIN    2    // LCD_MOSI IO02
+#define TFT_SCL_PIN    3    // LCD_CLK  IO03
+#define TFT_DC_PIN     6    // LCD_DC   IO06
+#define TFT_RES_PIN    1    // LCD_RES  IO01
+#define TFT_LEDA_PIN   10   // LCD_BL   IO10
+
 // Waveshare ESP32-S3 1.47" Display
 #elif (BLUKEY_BOARD == BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147)
 

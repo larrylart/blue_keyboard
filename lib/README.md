@@ -10,4 +10,9 @@ To get the display to work, edit `/Arduino/libraries/TFT_eSPI/User_Setup_Select.
 #include <User_Setups/Setup_Waveshare_ESP32S3_147.h>
 ```
 
+- **LilyGO ESP32-S3 T-QT**
+```cpp
+#include <User_Setups/Setup211_LilyGo_T_QT_Pro_S3.h>
+```
+
 Copy the relevant file (`Setup47_ST7735.h` or `Setup_Waveshare_ESP32S3_147.h`) from this folder to `/Arduino/libraries/TFT_eSPI/User_Setups/`.

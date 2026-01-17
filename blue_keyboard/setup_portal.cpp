@@ -16,7 +16,14 @@
 #include <Arduino.h>
 
 #if !NO_DISPLAY
-#include "TFT_eSPI.h" 
+	#include "TFT_eSPI.h" 
+	extern TFT_eSPI tft;   // defined in blue_keyboard.ino
+	// QRCode library by Richard Moore (ricmoo)
+	//#include <qrcode.h>
+	extern "C" {
+		#include "my_qrcode.h"
+	}
+
 #endif
 
 #include <WiFi.h>
@@ -32,6 +39,7 @@ using fs::FS;
 #include <mbedtls/version.h> 
 #include <DNSServer.h>
 
+#include "pin_config.h" 
 #include "settings.h"
 #include "layout_kb_profiles.h"   // KeyboardLayout, layoutName(), m_nKeyboardLayout
 
@@ -55,6 +63,8 @@ static const IPAddress AP_NET(255,255,255,0);
 static bool g_needReboot = false;
 static unsigned long g_restartAt = 0;
 
+static volatile bool g_apStaConnected = false;
+
 // output to serial teminal - for debug purposes
 static void displaySetupInfo(const char* ssid, const char* psk) 
 {
@@ -73,7 +83,10 @@ static inline void showPassword(const char* _psk)
 #if NO_DISPLAY
     (void)_psk;
     // No screen: password is printed via Serial in displaySetupInfo()
-#else	
+#else
+    // Clear between modes (QR <-> text)
+    tft.fillScreen(TFT_BLACK);
+	
 	char buf[12];
 	snprintf(buf, sizeof(buf), "%s", _psk);
 	displayStatus(buf, TFT_BLUE, /*big*/ true);
@@ -118,6 +131,111 @@ static void pbkdf2_sha256(const String& password,
 #endif
 }
 
+#if !NO_DISPLAY
+////////////////////////////////////////////////////////////////////
+// Render a text QR using ESP32 native QR backend (esp_qrcode.h).
+//
+// - Clears screen to white for camera-friendly contrast.
+// - Draws a centered QR in black.
+// - Uses QR version 5 (enough for WIFI payload + http://192.168.4.1/).
+////////////////////////////////////////////////////////////////////
+static inline void renderQrText(const String& text)
+{
+    // Keep the overall UI dark; only the QR area gets a white background.
+    tft.fillScreen(TFT_BLACK);
+
+#if (BLUKEY_BOARD == BLUKEY_BOARD_LILYGO_TDONGLE_S3) || !defined(BLUKEY_BOARD)
+	const uint8_t ver = 3; // 13-77 - best fit for 80px but pixel too small
+#else
+    const uint8_t ver = 3; // was 5 
+#endif
+
+    const int bufSize = qrcode_getBufferSize(ver);
+    uint8_t* qrData = (uint8_t*)malloc(bufSize);
+    if( !qrData ) 
+	{
+        tft.fillScreen(TFT_BLACK);
+        displayStatus("NO HEAP", TFT_RED, true);
+        return;
+    }
+
+    QRCode qr;
+    qrcode_initText(&qr, qrData, ver, ECC_LOW, text.c_str());
+
+    const int qrSize = (int)qr.size;
+    if( qrSize <= 0 ) 
+	{
+        free(qrData);
+        return;
+    }
+
+    // Quiet zone around QR (in modules). 4 is standard.
+    const int quietModules = 4;
+
+    // Total modules including quiet zone on both sides
+    const int totalModules = qrSize + (2 * quietModules);
+
+    // Fit to the shortest side (with a small pixel margin)
+    const int w = tft.width();
+    const int h = tft.height();
+    const int shortest = (w < h) ? w : h;
+
+    const int marginPx = 0; // keep a little breathing room from edges?
+    int availablePx = shortest - (2 * marginPx);
+    if (availablePx < 1) availablePx = 1;
+
+    // Compute scale so (totalModules * scale) fits into availablePx
+    int scale = availablePx / totalModules;
+    if (scale < 1) scale = 1;
+
+    // Panel size in pixels = totalModules * scale
+    const int panelW = totalModules * scale;
+    const int panelH = totalModules * scale;
+
+    const int xPanel = (w - panelW) / 2;
+    const int yPanel = (h - panelH) / 2;
+
+    // White panel only (not full screen)
+    tft.fillRect(xPanel, yPanel, panelW, panelH, TFT_WHITE);
+
+    // QR origin inside the panel (after quiet zone)
+    const int x0 = xPanel + (quietModules * scale);
+    const int y0 = yPanel + (quietModules * scale);
+
+    // Draw only black modules; white modules remain white from panel fill.
+    for( int y = 0; y < qrSize; ++y ) 
+	{
+        for( int x = 0; x < qrSize; ++x ) 
+		{
+            if( qrcode_getModule(&qr, x, y) ) 
+			{
+                tft.fillRect(x0 + x * scale, y0 + y * scale, scale, scale, TFT_BLACK);
+            }
+        }
+    }
+
+    free(qrData);
+}
+
+
+////////////////////////////////////////////////////////////////////
+// Wi-Fi join QR for the current SoftAP credentials.
+// Payload format: WIFI:T:WPA;S:<ssid>;P:<psk>;H:false;;
+////////////////////////////////////////////////////////////////////
+static inline void showWifiJoinQr(const String& ssid, const String& psk)
+{
+    const String payload = String("WIFI:T:WPA;S:") + ssid + ";P:" + psk + ";H:false;;";
+    renderQrText(payload);
+}
+
+////////////////////////////////////////////////////////////////////
+// URL QR for the portal home page.
+////////////////////////////////////////////////////////////////////
+static inline void showUrlQr(const String& url)
+{
+    renderQrText(url);
+}
+#endif
 
 ////////////////////////////////////////////////////////////////////
 // HTML form (simple, no external assets)
@@ -299,13 +417,10 @@ static void startApWithRandomPsk(String& outSsid, String& outPsk)
 	// When a client connects to our AP, display the portal IP
 	WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) 
 	{
-	  if (event == ARDUINO_EVENT_WIFI_AP_STACONNECTED) 
-	  {
-#if !NO_DISPLAY		  
-		displayStatus("192.168.4.1", TFT_BLUE, true);
-#endif		
-		DPRINTLN("Client connected to AP - displaying IP 192.168.4.1");
-	  }
+		if (event == ARDUINO_EVENT_WIFI_AP_STACONNECTED) {
+			g_apStaConnected = true;
+			DPRINTLN("Client connected to AP - will display IP 192.168.4.1");
+		}
 	});	
 }
 
@@ -347,6 +462,22 @@ bool runSetupPortal()
 	
 	// display AP key
 	showPassword( psk.c_str() );
+	
+#if !NO_DISPLAY
+	// Make sure the button pin is usable (active-low with internal pull-up)
+	pinMode(BTN_PIN, INPUT_PULLUP);
+#endif	
+	
+	// Track UI state on TFT:
+	// - Before a client connects: show password, allow toggling to WIFI join QR
+	// - After a client connects: show IP, allow toggling to URL QR
+	bool shownIpOnce = false;
+	bool showingWifiQr = false;
+	bool showingUrlQr = false;
+
+	// Short-press detection for BTN_PIN (active-low)
+	bool btnWasDown = false;
+	uint32_t btnDownAtMs = 0;	
 	
 	// Routes
 	server.on("/", HTTP_GET, []() {
@@ -489,19 +620,87 @@ bool runSetupPortal()
 	// Fallback: anything else not matched - redirect to root
 	server.onNotFound(redirectToRoot);
 
-
 	// start server
 	server.begin();
 
 	// Simple loop (blocking) until setup_done becomes true
-	unsigned long lastBlink = 0;
+	unsigned long lastBlink = 0;	
+	
 	for(;;) 
 	{		  
 		dns.processNextRequest(); 
 		 
 		server.handleClient();
+		
+#if !NO_DISPLAY
+		// When a client connects to the AP, show IP once
+		if( g_apStaConnected && !shownIpOnce )
+		{
+            // Clear between modes (password -> IP)
+            tft.fillScreen(TFT_BLACK);
+			
+			displayStatus("192.168.4.1", TFT_BLUE, true);
+			shownIpOnce = true;
+			showingUrlQr = false;
+			// If we were showing WIFI join QR before, switch to IP now.
+			showingWifiQr = false;
+		}
+
+		// Short-press handling
+		const bool btnDown = (digitalRead(BTN_PIN) == LOW); // active-low
+		const uint32_t now = millis();
+
+		if( btnDown && !btnWasDown )
+		{
+			btnWasDown = true;
+			btnDownAtMs = now;
+			
+		} else if( !btnDown && btnWasDown )
+		{
+			btnWasDown = false;
+			const uint32_t held = now - btnDownAtMs;
+			btnDownAtMs = 0;
+
+			if( held < 700 )
+			{
+				if( !g_apStaConnected )
+				{
+					// Before client joins: toggle Password <-> WIFI join QR
+					if( !showingWifiQr )
+					{
+						showWifiJoinQr(ssid, psk);
+						showingWifiQr = true;
+						
+					} else
+					{
+						showPassword(psk.c_str());
+						showingWifiQr = false;
+					}
+					
+				} else
+				{
+					// After client joins: toggle IP <-> URL QR
+					if( !showingUrlQr )
+					{
+						showUrlQr("http://192.168.4.1/");
+						showingUrlQr = true;
+						
+					} else
+					{
+						// Clear between modes (QR -> IP)
+						tft.fillScreen(TFT_BLACK);						
+						
+						displayStatus("192.168.4.1", TFT_BLUE, true);
+						showingUrlQr = false;
+					}
+				}
+			}
+		}
+#endif			
+		
 		// optional: small LED/TFT “AP mode” heartbeat
 		if (millis() - lastBlink > 500) { lastBlink = millis(); /* blink */ }
+					
 		// If a parallel task sets setup_done, break out:
 		//if( isSetupDone() || g_needReboot ) break;
 		if (g_needReboot && millis() >= g_restartAt) break;

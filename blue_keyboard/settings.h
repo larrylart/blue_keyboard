@@ -11,9 +11,10 @@
 /////////
 // Board models - use in pin config etc
 #define BLUKEY_BOARD_LILYGO_TDONGLE_S3   				1 // current default LilyGO (TFT + APA102 pins etc)
-#define BLUKEY_BOARD_ESP32S3_ZERO	  	 				2 // headless variant waveshare (no TFT)
-#define BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147		3 // Waveshare ESP32-S3 1.47" Display 
-#define BLUKEY_BOARD_ESP32S3_XIAO_PLUS					4 // Seeed Studio XIAO ESP32S3 Plus
+#define BLUKEY_BOARD_LILYGO_S3_TQT						2 // LIlyGO T-QT ESP32S3-FN4R2 (4MB Flash, 2MB PSRAM) and ESP32S3-N8 (8MB Flash, No PSRAM) - no led
+#define BLUKEY_BOARD_ESP32S3_ZERO	  	 				3 // headless variant waveshare (no TFT)
+#define BLUKEY_BOARD_WAVESHARE_ESP32S3_DISPLAY147		4 // Waveshare ESP32-S3 1.47" Display 
+#define BLUKEY_BOARD_ESP32S3_XIAO_PLUS					5 // Seeed Studio XIAO ESP32S3 Plus
 // define board to create frimware for
 #define BLUKEY_BOARD BLUKEY_BOARD_LILYGO_TDONGLE_S3
 
