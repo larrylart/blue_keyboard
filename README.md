@@ -1,4 +1,4 @@
-# ESP32-S3 Password/Keyboard Input Dongle (USB HID)
+## ESP32-S3 Secure Credentials & Keyboard Input Dongle (USB HID)
 
 > 🆕 **Latest Release – v2.1.0**  
 > BLE connectivity improvements, support for additional ESP32-S3 boards (including no-display variants),
