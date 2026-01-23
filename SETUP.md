@@ -58,7 +58,7 @@ Wi-Fi configuration portal:
 
 ### 2) Connect to the AP
 
-Note: **Display-equipped dongles:** v2.1.0 adds on-device **QR code access** for Wi-Fi and setup. The QR code can be shown from the **password / IP screen** using the **Back / User button**. 
+Note: **Display-equipped dongles:** v2.1.1 adds on-device **QR code access** for Wi-Fi and setup. The QR code can be shown from the **password / IP screen** using the **Back / User button**. 
 First QR code (from password screen) will allow you to connect to the dongle's wifi AP, second QR code (from IP screen) will open the browser straight to the setup page. 
 
 On your phone or PC:
