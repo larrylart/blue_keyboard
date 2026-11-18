@@ -9,6 +9,7 @@ This folder documents client applications that work with the **Blue Keyboard Don
 - ✅ **Android companion app (BluKeyborg)**
 - ✅ **iOS companion app (BluKeyborg)**
 - ✅ **Linux command-line client**
+- ✅ **Web app (Web Bluetooth – Chrome, Edge, Safari + beacio on iOS)**
 - 🔄 **KeePassDX integrations (two approaches)**  
 
 ---
@@ -88,6 +89,20 @@ Features:
 
 **Repository:**  
 https://github.com/larrylart/blue_keyboard/tree/main/apps/linux
+
+---
+
+### **6. Web App (Web Bluetooth)**
+
+A single static page you host yourself over HTTPS. No install on desktop/Android Chrome; on iPhone it runs
+in Safari with the beacio extension.
+
+Features:
+- Same secure provisioning + MTLS as the native apps (WebCrypto only, no libraries)
+- Send text/passwords, optional Enter, iOS AutoFill friendly
+- AppKey stored as a non-extractable browser key
+
+**Location:** [apps/web](web/)
 
 ---
 

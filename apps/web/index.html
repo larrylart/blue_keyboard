@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Blue Keyboard</title>
+<style>
+	:root {
+		--bg: #f5f6f8; --card: #ffffff; --text: #16181d; --muted: #5d6470;
+		--line: #d9dce2; --accent: #1f5fd6; --accent-text: #ffffff;
+		--ok: #1a7f37; --err: #c62828; --busy: #9a6700;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--bg: #111317; --card: #1b1e24; --text: #e8eaee; --muted: #9aa1ad;
+			--line: #2e333c; --accent: #5b8ff0; --accent-text: #0b0d10;
+			--ok: #4cc26a; --err: #ff6b6b; --busy: #e0b341;
+		}
+	}
+	* { box-sizing: border-box; }
+	[hidden] { display: none !important; }
+	body {
+		margin: 0; padding: 24px 16px 40px; background: var(--bg); color: var(--text);
+		font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	}
+	main { max-width: 460px; margin: 0 auto; display: grid; gap: 16px; }
+	h1 { font-size: 22px; margin: 0; }
+	.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 12px; }
+	.card h2 { font-size: 15px; margin: 0; color: var(--muted); font-weight: 600; }
+	label { font-size: 14px; color: var(--muted); display: grid; gap: 6px; }
+	label.check { display: flex; align-items: center; gap: 8px; color: var(--text); font-size: 15px; }
+	input[type=password], input[type=text] {
+		width: 100%; font-size: 17px; padding: 12px; border-radius: 8px;
+		border: 1px solid var(--line); background: var(--bg); color: var(--text);
+	}
+	input[type=checkbox] { width: 20px; height: 20px; margin: 0; }
+	button {
+		font: inherit; font-weight: 600; padding: 12px 16px; border-radius: 8px; border: 0;
+		background: var(--accent); color: var(--accent-text); cursor: pointer;
+	}
+	button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+	button.link { background: none; color: var(--muted); padding: 4px 0; font-weight: 400; text-decoration: underline; justify-self: start; }
+	button:disabled { opacity: .45; cursor: default; }
+	.row { display: flex; gap: 16px; flex-wrap: wrap; }
+	#status { font-weight: 600; }
+	#status::before { content: "●"; margin-right: 8px; }
+	#status[data-state=idle]::before { color: var(--muted); }
+	#status[data-state=busy]::before { color: var(--busy); }
+	#status[data-state=ok]::before { color: var(--ok); }
+	#status[data-state=error] { color: var(--err); }
+	#status[data-state=error]::before { color: var(--err); }
+	#info, .hint { font-size: 13px; color: var(--muted); margin: 0; }
+	#result { margin: 0; font-size: 14px; min-height: 1.4em; }
+	#result[data-state=ok] { color: var(--ok); }
+	#result[data-state=error] { color: var(--err); }
+	#unsupported { border-color: var(--err); display: block; }
+</style>
+</head>
+<body>
+<main>
+	<h1>Blue Keyboard</h1>
+
+	<div class="card" id="unsupported" hidden>
+		This browser has no Web Bluetooth. On iPhone, install the free <b>beacio</b> Safari extension
+		(iOS 26.2+) and allow it on this site. On a computer or Android phone, use Chrome or Edge.
+	</div>
+
+	<section class="card">
+		<div id="status" data-state="idle">Starting…</div>
+		<p id="info"></p>
+		<div id="linkBox" hidden>
+			<label>Dongle setup password <span class="hint">(first time only, to link this page)</span>
+				<input id="setupPw" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+			</label>
+		</div>
+		<button id="connect">Connect</button>
+		<button id="disconnect" class="secondary" hidden>Disconnect</button>
+	</section>
+
+	<section class="card">
+		<h2>Type on the computer</h2>
+		<label>Text or password
+			<input id="text" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false">
+		</label>
+		<div class="row">
+			<label class="check"><input id="reveal" type="checkbox"> Show</label>
+			<label class="check"><input id="enter" type="checkbox"> Press Enter after</label>
+		</div>
+		<button id="send" disabled>Send</button>
+		<p id="result"></p>
+	</section>
+
+	<button id="forget" class="link" hidden>Forget this dongle's key</button>
+	<p class="hint">Text is encrypted on this phone before it is sent over Bluetooth. Only the dongle can decrypt it.</p>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
